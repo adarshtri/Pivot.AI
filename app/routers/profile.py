@@ -16,8 +16,7 @@ async def upsert_profile(payload: ProfilePayload) -> ProfileResponse:
     db = get_db()
     now = datetime.now(timezone.utc)
 
-    # Exclude is_admin so users cannot grant/revoke their own admin privileges via UI payload
-    doc = payload.model_dump(exclude={"is_admin"})
+    doc = payload.model_dump()
     doc["updated_at"] = now
 
     await db.users.update_one(
@@ -26,8 +25,7 @@ async def upsert_profile(payload: ProfilePayload) -> ProfileResponse:
         upsert=True,
     )
 
-    user = await db.users.find_one({"user_id": payload.user_id}, {"_id": 0})
-    return ProfileResponse(**user)
+    return ProfileResponse(**doc)
 
 
 @router.get("/{user_id}", response_model=ProfileResponse)

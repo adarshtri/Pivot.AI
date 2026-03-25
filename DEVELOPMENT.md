@@ -50,12 +50,20 @@ npm run dev
 ```
 
 ## 4. Bootstrapping Your Data
-1. Open http://localhost:3000 in your browser.
-2. Navigate to **Profile** and **Goals** inside the sidebar to configure your target roles, domains, and locations.
-3. Navigate to **Admin** (Click the `user1` icon at the bottom left).
-4. Click **Run Discovery** and wait for the system to identify companies matching your goals.
-5. Click **Run Ingestion** to pull the global job pool from the discovered companies.
-6. Click **Run AI Scoring** to process the ingested jobs through the local semantic embeddings model!
+A fresh installation requires an administrative profile to access the system settings, trigger discovery, and run the AI scoring engines.
+
+1. In your backend terminal, run the bootstrap script to gracefully elevate your local profile to a global admin:
+```bash
+python scripts/bootstrap_admin.py
+```
+*(This directly populates MongoDB with an `is_admin: True` flag, which is restricted via the UI).*
+
+2. Open http://localhost:3000 in your browser.
+3. Navigate to **Profile** and **Goals** inside the sidebar to configure your target roles, domains, and locations.
+4. Navigate to **Admin** (Click the `user1` icon at the bottom left) and configure your system settings.
+5. Click **Run Discovery** and wait for the system to identify companies matching your goals.
+6. Click **Run Ingestion** to pull the global job pool from the discovered companies.
+7. Click **Run AI Scoring** to process the ingested jobs through the local semantic embeddings model!
 
 ## Troubleshooting
 - **Database connection refused?** Ensure MongoDB is running using `brew services list`.
