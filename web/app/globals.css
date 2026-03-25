@@ -1,0 +1,112 @@
+@import "tailwindcss";
+
+:root {
+  --bg-base: #0a0b10;
+  --bg-surface: #111218;
+  --bg-card: rgba(22, 23, 35, 0.7);
+  --bg-card-hover: rgba(30, 31, 48, 0.8);
+  --accent: #7c5cfc;
+  --accent-secondary: #5b8def;
+}
+
+body {
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  background: var(--bg-base);
+  color: #e8e9f0;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Glassmorphism card */
+.glass-card {
+  background: var(--bg-card);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 14px;
+  backdrop-filter: blur(12px);
+  transition: all 0.25s ease;
+}
+.glass-card:hover {
+  border-color: rgba(255, 255, 255, 0.1);
+  background: var(--bg-card-hover);
+}
+
+/* Accent gradient text */
+.gradient-text {
+  background: linear-gradient(135deg, #7c5cfc 0%, #5b8def 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* Tags */
+.tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 14px;
+  border-radius: 100px;
+  font-size: 0.8rem;
+  font-weight: 500;
+  background: rgba(124, 92, 252, 0.12);
+  color: var(--accent);
+  border: 1px solid rgba(124, 92, 252, 0.2);
+  transition: all 0.15s ease;
+}
+
+/* Buttons */
+.btn-primary {
+  background: linear-gradient(135deg, #7c5cfc 0%, #5b8def 100%);
+  color: white;
+  box-shadow: 0 2px 12px rgba(124, 92, 252, 0.3);
+  border: none;
+  padding: 8px 24px;
+  border-radius: 10px;
+  font-weight: 600;
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.btn-primary:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 20px rgba(124, 92, 252, 0.4);
+}
+.btn-primary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+}
+
+/* Source badges */
+.badge-greenhouse {
+  background: rgba(52, 211, 153, 0.12);
+  color: #34d399;
+}
+.badge-lever {
+  background: rgba(96, 165, 250, 0.12);
+  color: #60a5fa;
+}
+
+/* Custom input */
+.input-dark {
+  background: #1a1b25;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
+  color: #e8e9f0;
+  padding: 8px 16px;
+  font-size: 0.9rem;
+  outline: none;
+  transition: all 0.15s ease;
+  width: 100%;
+}
+.input-dark:focus {
+  border-color: rgba(124, 92, 252, 0.5);
+  box-shadow: 0 0 0 3px rgba(124, 92, 252, 0.15);
+}
+.input-dark::placeholder {
+  color: #5a5c72;
+}
+
+/* Toast animation */
+@keyframes toast-in {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
