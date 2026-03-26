@@ -13,7 +13,9 @@ class PipelineItem(BaseModel):
     goal_scores: dict[str, Any] = Field(default_factory=dict)
     status: str = "recommended"  # recommended, saved, applied, ignored
     rationale: str = ""
+    ignore_reason: str | None = None
     llm_verdict: str | None = None
+
     goals_fingerprint: str | None = None
     llm_goals_fingerprint: str | None = None
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
@@ -35,7 +37,9 @@ class PipelineResponse(BaseModel):
     pipeline_goal_scores: dict[str, Any]
     pipeline_status: str
     pipeline_rationale: str
+    pipeline_ignore_reason: str | None = None
     pipeline_llm_verdict: str | None = None
+
     pipeline_updated_at: datetime
 
 

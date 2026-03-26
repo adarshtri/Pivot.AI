@@ -34,8 +34,16 @@ export default function JobsPage() {
   }, [activeTab]);
 
   const handleStatusUpdate = async (jobId, status) => {
+    let reason = null;
+    if (status === "ignored") {
+      reason = window.prompt("Why are you ignoring this job? (Optional)");
+      if (reason === null) return; // User cancelled
+      if (reason.trim() === "") reason = "Following system recommendation.";
+    }
+
+
     try {
-      await updatePipelineStatus("user1", jobId, status);
+      await updatePipelineStatus("user1", jobId, status, reason);
       // Refresh data to move the item out of the current view
       load();
       showToast(`Moved to ${status}`);
@@ -43,6 +51,7 @@ export default function JobsPage() {
       showToast(err.message, "error");
     }
   };
+
 
   const formatDate = (dateStr) => {
     try {
@@ -233,6 +242,13 @@ export default function JobsPage() {
                       🧠 {job.pipeline_rationale}
                     </div>
                   )}
+
+                  {activeTab === "ignored" && job.pipeline_ignore_reason && (
+                    <div className="mb-4 px-3 py-2 bg-[#f85149]/5 border border-[#f85149]/10 rounded-md text-xs italic text-[#8a8ca0]">
+                      <span className="text-[#f85149] font-bold not-italic mr-1">Ignored because:</span> {job.pipeline_ignore_reason}
+                    </div>
+                  )}
+
                   
                   {job.pipeline_goal_scores && Object.keys(job.pipeline_goal_scores).length > 0 && (
                     <div className="mb-4 space-y-1.5 p-3 rounded-lg bg-[rgba(124,92,252,0.05)] border border-[rgba(124,92,252,0.15)]">
@@ -293,7 +309,7 @@ export default function JobsPage() {
                         Ignore
                       </button>
                     )}
-                    {activeTab !== "saved" && activeTab !== "applied" && (
+                    {activeTab !== "saved" && activeTab === "recommended" && (
                       <button 
                         onClick={() => handleStatusUpdate(job.job_id, "saved")}
                         className="px-3 py-1.5 text-xs font-semibold text-[#56d364] hover:bg-[#56d364]/10 rounded-md transition-colors"
@@ -301,22 +317,40 @@ export default function JobsPage() {
                         Save
                       </button>
                     )}
+                    {activeTab !== "applied" && (
+                      <button 
+                        onClick={() => handleStatusUpdate(job.job_id, "applied")}
+                        className="px-3 py-1.5 text-xs font-semibold text-[var(--accent)] hover:bg-[var(--accent)]/10 rounded-md transition-colors"
+                      >
+                        Mark Applied
+                      </button>
+                    )}
                   </div>
                   
-                  <a
-                    href={job.url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    onClick={() => {
-                      if (activeTab !== "applied") {
-                        handleStatusUpdate(job.job_id, "applied");
-                      }
-                    }}
-                    className="px-4 py-1.5 text-xs font-bold bg-[var(--accent)] text-white shadow-lg shadow-[var(--accent)]/20 hover:shadow-[var(--accent)]/40 hover:-translate-y-0.5 transition-all rounded-md"
-                  >
-                    Apply →
-                  </a>
+                  <div className="flex gap-2">
+                    <a
+                      href={job.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="px-3 py-1.5 text-xs font-medium text-[#8a8ca0] hover:text-[#d0d3e2] bg-[#2a2b40]/50 hover:bg-[#2a2b40] rounded-md transition-all"
+                    >
+                      View Posting
+                    </a>
+                    
+                    {activeTab !== "applied" && (
+                      <a
+                        href={job.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        onClick={() => handleStatusUpdate(job.job_id, "applied")}
+                        className="px-4 py-1.5 text-xs font-bold bg-[var(--accent)] text-white shadow-lg shadow-[var(--accent)]/20 hover:shadow-[var(--accent)]/40 hover:-translate-y-0.5 transition-all rounded-md"
+                      >
+                        Apply Now →
+                      </a>
+                    )}
+                  </div>
                 </div>
+
               </div>
             ))}
           </div>

@@ -48,11 +48,12 @@ export const getPipeline = (userId, params = {}) => {
   return request(`/pipeline/${userId}${qs ? `?${qs}` : ""}`);
 };
 
-export const updatePipelineStatus = (userId, jobId, status) =>
+export const updatePipelineStatus = (userId, jobId, status, reason = null) =>
   request(`/pipeline/${userId}/${jobId}/status`, {
     method: "PUT",
-    body: JSON.stringify({ status }),
+    body: JSON.stringify({ status, reason }),
   });
+
 export const triggerScoring = (userId) =>
   request(`/pipeline/${userId}/score`, { method: "POST" });
 export const triggerInference = (userId) =>

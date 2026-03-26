@@ -16,6 +16,8 @@ router = APIRouter(prefix="/api/v1/pipeline", tags=["Pipeline"])
 
 class StatusUpdate(BaseModel):
     status: str
+    reason: Optional[str] = None
+
 
 @router.get("/{user_id}", response_model=PaginatedPipelineResponse)
 async def get_pipeline(
@@ -90,7 +92,9 @@ async def get_pipeline(
             pipeline_goal_scores=p_item.get("goal_scores", {}),
             pipeline_status=p_item.get("status", "recommended"),
             pipeline_rationale=p_item.get("rationale", ""),
+            pipeline_ignore_reason=p_item.get("ignore_reason", None),
             pipeline_llm_verdict=p_item.get("llm_verdict", None),
+
             pipeline_updated_at=p_item.get("updated_at")
         ))
         
@@ -111,10 +115,15 @@ async def update_pipeline_status(user_id: str, job_id: str, payload: StatusUpdat
     from datetime import datetime, timezone
     now = datetime.now(timezone.utc)
     
+    update_data = {"status": payload.status, "updated_at": now}
+    if payload.reason:
+        update_data["ignore_reason"] = payload.reason
+
     result = await db.pipeline.update_one(
         {"user_id": user_id, "job_id": job_id},
-        {"$set": {"status": payload.status, "updated_at": now}}
+        {"$set": update_data}
     )
+
     
     if result.matched_count == 0:
         raise HTTPException(status_code=404, detail="Pipeline item not found")
