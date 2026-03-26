@@ -39,8 +39,8 @@ export default function ProfilePage() {
         experience_level: experienceLevel,
         current_role: currentRole,
         telegram_token: telegramToken,
-        telegram_chat_id: telegramChatId,
       };
+
 
       const result = await upsertProfile(data);
       setProfile(result);

@@ -44,8 +44,9 @@ async def telegram_webhook(token: str, request: Request):
         if text.startswith("/start"):
             await db.users.update_one(
                 {"user_id": user_id},
-                {"$set": {"telegram_chat_id": chat_id}}
+                {"$set": {"telegram_chat_id": str(chat_id)}}
             )
+
             welcome_text = (
                 "<b>🚀 Pivot.AI Bot Activated!</b>\n\n"
                 "I am now linked to your profile. I'll notify you whenever I find "

@@ -48,8 +48,8 @@ async def update_settings(payload: AdminSettings, user_id: str = "user1") -> Adm
     await _require_admin(user_id)
     db = get_db()
 
-    doc = payload.model_dump()
-    doc["updated_at"] = datetime.now(timezone.utc)
+    update_fields = payload.model_dump(exclude_unset=True)
+    update_fields["updated_at"] = datetime.now(timezone.utc)
 
     # Fetch existing settings once to handle masked/empty API keys
     existing = await db.admin_settings.find_one({"_id": "settings"})
@@ -57,18 +57,19 @@ async def update_settings(payload: AdminSettings, user_id: str = "user1") -> Adm
     # If brave_search_api_key is empty or masked, keep the existing one
     if not payload.brave_search_api_key or payload.brave_search_api_key == "********":
         if existing and existing.get("brave_search_api_key"):
-            doc["brave_search_api_key"] = existing["brave_search_api_key"]
+            update_fields["brave_search_api_key"] = existing["brave_search_api_key"]
             
     # If llm_api_key is empty or masked, keep the existing one
     if not payload.llm_api_key or payload.llm_api_key == "********":
         if existing and existing.get("llm_api_key"):
-            doc["llm_api_key"] = existing["llm_api_key"]
+            update_fields["llm_api_key"] = existing["llm_api_key"]
 
     await db.admin_settings.update_one(
         {"_id": "settings"},
-        {"$set": doc},
+        {"$set": update_fields},
         upsert=True,
     )
+
     logger.info("Admin settings updated")
     updated = await get_admin_settings()
     return AdminSettingsResponse.from_settings(updated)
@@ -157,15 +158,20 @@ async def admin_sync_telegram_webhooks(user_id: str = "user1") -> dict:
     if not base_url:
         raise HTTPException(status_code=400, detail="Telegram Webhook Base URL not configured in Admin Settings")
 
-    # Normalize base_url (remove trailing slash)
-    base_url = base_url.rstrip("/")
+    # Normalize base_url (remove whitespace and trailing slash)
+    base_url = base_url.strip().rstrip("/")
+
+    
+    logger.info(f"Syncing Telegram webhooks with base_url: {base_url}")
     
     success_count = 0
     errors = []
     
-    # Find all users with a telegram token
-    async for user in db.users.find({"telegram_token": {"$exists": True, "$ne": None, "$ne": ""}}, {"telegram_token": 1, "user_id": 1}):
+    # Find all users with a telegram token (not null and not empty)
+    cursor = db.users.find({"telegram_token": {"$nin": [None, ""]}}, {"telegram_token": 1, "user_id": 1})
+    async for user in cursor:
         token = user["telegram_token"]
+
         # webhook_url = {base_url}/api/v1/telegram/webhook/{token}
         webhook_url = f"{base_url}/api/v1/telegram/webhook/{token}"
         api_url = f"https://api.telegram.org/bot{token}/setWebhook?url={webhook_url}"

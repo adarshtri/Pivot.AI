@@ -16,7 +16,7 @@ async def upsert_profile(payload: ProfilePayload) -> ProfileResponse:
     db = get_db()
     now = datetime.now(timezone.utc)
 
-    doc = payload.model_dump()
+    doc = payload.model_dump(exclude_unset=True)
     doc["updated_at"] = now
 
     await db.users.update_one(
@@ -24,6 +24,7 @@ async def upsert_profile(payload: ProfilePayload) -> ProfileResponse:
         {"$set": doc},
         upsert=True,
     )
+
 
     return ProfileResponse(**doc)
 

@@ -63,7 +63,7 @@ export default function AdminPage() {
         model_name: modelName,
         ingestion_interval_hours: ingestionHours,
         discovery_interval_hours: discoveryHours,
-        telegram_webhook_base_url: telegramWebhookBaseUrl,
+        telegram_webhook_base_url: telegramWebhookBaseUrl.trim(),
       };
 
       const result = await updateAdminSettings(payload);
