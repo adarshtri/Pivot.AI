@@ -234,6 +234,8 @@ class ScoringEngine:
         _start = time.monotonic()
         llm = await self._get_llm_client()
         
+        strong_matches = []
+
         async for p in candidate_cursor:
             # Skip if already inferred with the current goals state
             if p.get("llm_goals_fingerprint") == llm_fingerprint:
@@ -245,27 +247,25 @@ class ScoringEngine:
                 continue
                 
             result = await llm.generate_rationale(job, goals)
+            verdict = result.get("verdict", "Moderate Match")
             
             await self._db.pipeline.update_one(
                 {"user_id": user_id, "job_id": job["job_id"]},
                 {"$set": {
                     "rationale": result.get("reasoning", ""),
-                    "llm_verdict": result.get("verdict", "Moderate Match"),
+                    "llm_verdict": verdict,
                     "llm_goals_fingerprint": llm_fingerprint,
                 }}
             )
             
-            # Send Telegram Alert for Strong Matches
-            if result.get("verdict") == "Strong Match" and user.get("telegram_token") and user.get("telegram_chat_id"):
-                alert_text = (
-                    f"🚀 <b>Strong Match Found!</b>\n\n"
-                    f"<b>Role:</b> {job.get('role', 'Unknown Role')}\n"
-                    f"<b>Company:</b> {job.get('company', 'Unknown Company')}\n"
-                    f"<b>Score:</b> {p.get('score', 0.0):.0f}/100\n\n"
-                    f"🧠 <b>AI Rationale:</b> {result.get('reasoning', '')[:200]}...\n\n"
-                    f"🔗 <a href='{job.get('url', '')}'>View Posting</a>"
-                )
-                await send_telegram_message(user["telegram_token"], user["telegram_chat_id"], alert_text)
+            # Add to summary candidates (all inferred jobs are score >= 50)
+            strong_matches.append({
+                "role": job.get("role", "Unknown Role"),
+                "company": job.get("company", "Unknown Company"),
+                "score": p.get("score", 0.0),
+                "url": job.get("url", ""),
+                "verdict": verdict
+            })
 
             inferred_count += 1
 
@@ -277,8 +277,37 @@ class ScoringEngine:
                     "LLM inference progress: %d inferred, %d skipped (%.1fs elapsed)",
                     inferred_count, skipped_count, elapsed
                 )
+
+        # Send Telegram Summary for jobs inferred in this run
+        if strong_matches and user.get("telegram_token") and user.get("telegram_chat_id"):
+            # Sort by score descending and take top 5
+            strong_matches.sort(key=lambda x: x["score"], reverse=True)
+            top_matches = strong_matches[:5]
             
+            summary_lines = [
+                "<b>🚀 Top Career Matches Found!</b>",
+                f"\nWe analyzed your pipeline and found {len(strong_matches)} strong matches for your goals.\n"
+            ]
+            
+            for i, match in enumerate(top_matches, 1):
+                v_icon = "🔥" if match["verdict"] == "Strong Match" else "✨"
+                summary_lines.append(
+                    f"{i}. {v_icon} <b>{match['role']}</b> at {match['company']}\n"
+                    f"   🎯 Score: {match['score']:.0f}/100 | <a href='{match['url']}'>View Job</a>\n"
+                )
+            
+            summary_lines.append(f"\nVisit your dashboard to see all matches: http://localhost:3000/jobs")
+            
+            await send_telegram_message(
+                user["telegram_token"], 
+                user["telegram_chat_id"], 
+                "\n".join(summary_lines)
+            )
+
+
+
         if self._llm_client:
+
             await self._llm_client.close()
 
         summary = {"status": "completed", "inferred_jobs": inferred_count, "skipped_jobs": skipped_count}
