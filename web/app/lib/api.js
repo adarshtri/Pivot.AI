@@ -67,6 +67,12 @@ export const adminRunDiscovery = () =>
   request("/admin/discovery/run", { method: "POST" });
 export const adminRunIngestion = () =>
   request("/admin/ingestion/run", { method: "POST" });
+export const syncTelegramWebhooks = () =>
+  request("/admin/telegram/sync-webhooks", { method: "POST" });
+export const adminTestTelegramAlert = (targetUserId) =>
+  request(`/admin/telegram/test-alert?target_user_id=${targetUserId}`, { method: "POST" });
+
+
 
 // Stats (aggregated from existing endpoints)
 export async function getStats() {

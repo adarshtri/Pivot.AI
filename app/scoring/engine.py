@@ -8,6 +8,8 @@ from datetime import datetime, timezone
 from motor.motor_asyncio import AsyncIOMotorDatabase
 from app.scoring.embeddings import EmbeddingsService
 from app.scoring.llm import LLMProvider, OllamaClient, GroqClient
+from app.telegram_utils import send_telegram_message
+
 
 logger = logging.getLogger(__name__)
 
@@ -252,7 +254,21 @@ class ScoringEngine:
                     "llm_goals_fingerprint": llm_fingerprint,
                 }}
             )
+            
+            # Send Telegram Alert for Strong Matches
+            if result.get("verdict") == "Strong Match" and user.get("telegram_token") and user.get("telegram_chat_id"):
+                alert_text = (
+                    f"🚀 <b>Strong Match Found!</b>\n\n"
+                    f"<b>Role:</b> {job.get('role', 'Unknown Role')}\n"
+                    f"<b>Company:</b> {job.get('company', 'Unknown Company')}\n"
+                    f"<b>Score:</b> {p.get('score', 0.0):.0f}/100\n\n"
+                    f"🧠 <b>AI Rationale:</b> {result.get('reasoning', '')[:200]}...\n\n"
+                    f"🔗 <a href='{job.get('url', '')}'>View Posting</a>"
+                )
+                await send_telegram_message(user["telegram_token"], user["telegram_chat_id"], alert_text)
+
             inferred_count += 1
+
             
             total_processed = inferred_count + skipped_count
             if total_processed % 10 == 0:

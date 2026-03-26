@@ -7,7 +7,8 @@ from fastapi import FastAPI
 
 from app.database import close_db, connect_db
 from app.ingestion.scheduler import start_scheduler, stop_scheduler
-from app.routers import admin, discovery, goals, jobs, pipeline, profile
+from app.routers import admin, discovery, goals, jobs, pipeline, profile, telegram
+
 
 logging.basicConfig(
     level=logging.INFO,
@@ -42,6 +43,8 @@ app.include_router(jobs.router)
 app.include_router(discovery.router)
 app.include_router(pipeline.router)
 app.include_router(admin.router)
+app.include_router(telegram.router)
+
 
 
 @app.get("/health", tags=["System"])

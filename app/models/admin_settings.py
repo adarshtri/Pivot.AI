@@ -12,6 +12,7 @@ class AdminSettings(BaseModel):
     llm_api_key: str = ""
     ingestion_interval_hours: int = 6
     discovery_interval_hours: int = 24
+    telegram_webhook_base_url: str = ""
 
 
 class AdminSettingsResponse(AdminSettings):
@@ -31,4 +32,6 @@ class AdminSettingsResponse(AdminSettings):
             model_name=s.model_name,
             ingestion_interval_hours=s.ingestion_interval_hours,
             discovery_interval_hours=s.discovery_interval_hours,
+            telegram_webhook_base_url=s.telegram_webhook_base_url,
         )
+

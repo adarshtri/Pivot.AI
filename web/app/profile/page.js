@@ -10,7 +10,10 @@ export default function ProfilePage() {
   const [experienceLevel, setExperienceLevel] = useState("");
   const [currentRole, setCurrentRole] = useState("");
   const [skills, setSkills] = useState([]);
+  const [telegramToken, setTelegramToken] = useState("");
+  const [telegramChatId, setTelegramChatId] = useState("");
   const { showToast, ToastComponent } = useToast();
+
 
   useEffect(() => {
     getProfile("user1")
@@ -19,8 +22,11 @@ export default function ProfilePage() {
         setSkills(p.skills || []);
         setExperienceLevel(p.experience_level || "");
         setCurrentRole(p.current_role || "");
+        setTelegramToken(p.telegram_token || "");
+        setTelegramChatId(p.telegram_chat_id || "");
       })
       .catch(() => {})
+
       .finally(() => setLoading(false));
   }, []);
 
@@ -32,7 +38,10 @@ export default function ProfilePage() {
         skills,
         experience_level: experienceLevel,
         current_role: currentRole,
+        telegram_token: telegramToken,
+        telegram_chat_id: telegramChatId,
       };
+
       const result = await upsertProfile(data);
       setProfile(result);
       showToast("Profile saved successfully");
@@ -107,6 +116,48 @@ export default function ProfilePage() {
           {saving ? "Saving…" : "Save Profile"}
         </button>
       </div>
+
+      <div className="glass-card p-6 max-w-2xl mt-8">
+        <h2 className="text-xl font-bold mb-4 flex items-center gap-2">
+          <span>✈️</span> Telegram Bot Integration
+        </h2>
+        <p className="text-sm text-[#8a8ca0] mb-6">
+          Receive real-time career alerts and high-quality job matches directly on your phone.
+        </p>
+
+        <div className="mb-6">
+          <label className="block text-xs font-semibold text-[#8a8ca0] uppercase tracking-wider mb-2">
+            Bot Token (from @BotFather)
+          </label>
+          <input
+            type="password"
+            className="input-dark"
+            value={telegramToken}
+            onChange={(e) => setTelegramToken(e.target.value)}
+            placeholder="123456789:ABCDefGhIjK..."
+          />
+          {telegramChatId ? (
+            <p className="text-xs text-[#56d364] mt-2 font-medium">
+              ✅ Connected! (Chat ID: {telegramChatId})
+            </p>
+          ) : (
+            <p className="text-xs text-[#d29922] mt-2 font-medium">
+              ⚠️ Not connected. Save your token then message <b>/start</b> to your bot.
+            </p>
+          )}
+        </div>
+
+        <div className="p-4 bg-[rgba(124,92,252,0.05)] border border-[rgba(124,92,252,0.15)] rounded-lg text-xs leading-relaxed text-[#8a8ca0]">
+          <strong>How to set up:</strong>
+          <ol className="list-decimal ml-4 mt-2 space-y-1">
+            <li>Message <strong>@BotFather</strong> on Telegram and create a new bot.</li>
+            <li>Copy the <strong>API Token</strong> and paste it above.</li>
+            <li>Once saved, message <strong>/start</strong> to your new bot.</li>
+            <li>If your admin has configured the webhook, the bot will wake up!</li>
+          </ol>
+        </div>
+      </div>
+
 
       {ToastComponent}
     </div>

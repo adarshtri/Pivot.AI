@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import logging
+import httpx
 from datetime import datetime, timezone
+
 
 from fastapi import APIRouter, HTTPException
 
@@ -142,4 +144,70 @@ async def admin_trigger_ingestion(user_id: str = "user1") -> dict:
     service = IngestionService(db, providers)
     summary = await service.run()
     return {"status": "completed", **summary}
+
+
+@router.post("/telegram/sync-webhooks")
+async def admin_sync_telegram_webhooks(user_id: str = "user1") -> dict:
+    """Sync the base webhook URL to all configured Telegram bot tokens."""
+    await _require_admin(user_id)
+    db = get_db()
+    settings = await get_admin_settings()
+    
+    base_url = settings.telegram_webhook_base_url
+    if not base_url:
+        raise HTTPException(status_code=400, detail="Telegram Webhook Base URL not configured in Admin Settings")
+
+    # Normalize base_url (remove trailing slash)
+    base_url = base_url.rstrip("/")
+    
+    success_count = 0
+    errors = []
+    
+    # Find all users with a telegram token
+    async for user in db.users.find({"telegram_token": {"$exists": True, "$ne": None, "$ne": ""}}, {"telegram_token": 1, "user_id": 1}):
+        token = user["telegram_token"]
+        # webhook_url = {base_url}/api/v1/telegram/webhook/{token}
+        webhook_url = f"{base_url}/api/v1/telegram/webhook/{token}"
+        api_url = f"https://api.telegram.org/bot{token}/setWebhook?url={webhook_url}"
+        
+        async with httpx.AsyncClient() as client:
+            try:
+                resp = await client.post(api_url)
+                resp.raise_for_status()
+                success_count += 1
+            except Exception as e:
+                logger.error(f"Failed to sync webhook for user {user['user_id']}: {e}")
+                errors.append({"user_id": user["user_id"], "error": str(e)})
+
+    return {
+        "status": "completed",
+        "synced_count": success_count,
+        "errors": errors
+    }
+
+
+@router.post("/telegram/test-alert")
+async def admin_test_telegram_message(target_user_id: str, user_id: str = "user1") -> dict:
+    """Send a manual test notification to a specific user's Telegram bot."""
+    await _require_admin(user_id)
+    db = get_db()
+    
+    user = await db.users.find_one({"user_id": target_user_id})
+    if not user or not user.get("telegram_token") or not user.get("telegram_chat_id"):
+        raise HTTPException(status_code=400, detail="User does not have Telegram configured or hasn't messaged /start")
+
+    from app.telegram_utils import send_telegram_message
+    
+    success = await send_telegram_message(
+        user["telegram_token"], 
+        user["telegram_chat_id"], 
+        "<b>🔔 Pivot.AI Test Notification</b>\n\nYour Telegram integration is working correctly!"
+    )
+    
+    if not success:
+        raise HTTPException(status_code=500, detail="Failed to send Telegram message")
+        
+    return {"status": "success", "message": f"Test alert sent to {target_user_id}"}
+
+
 

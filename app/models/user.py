@@ -16,6 +16,9 @@ class ProfilePayload(BaseModel):
     experience_level: str = ""
     current_role: str = ""
     is_admin: bool = False
+    telegram_token: str | None = None
+    telegram_chat_id: str | None = None
+
 
 
 class ProfileResponse(BaseModel):
@@ -26,7 +29,10 @@ class ProfileResponse(BaseModel):
     experience_level: str
     current_role: str
     is_admin: bool = False
+    telegram_token: str | None = None
+    telegram_chat_id: str | None = None
     updated_at: datetime
+
 
 
 # ── Goals ────────────────────────────────────────────────────────────────────
