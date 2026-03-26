@@ -25,12 +25,15 @@ GREENHOUSE_PATTERN = re.compile(
 LEVER_PATTERN = re.compile(
     r"(?:jobs\.)?lever\.co/([a-zA-Z0-9_-]+)"
 )
+ASHBY_PATTERN = re.compile(
+    r"jobs\.ashbyhq\.com/([a-zA-Z0-9_-]+)"
+)
 
 
 def _build_search_queries(keywords: list[str]) -> list[str]:
     """Generate search queries from a list of user goal keywords.
 
-    Builds queries scoped to Greenhouse and Lever job boards.
+    Builds queries scoped to Greenhouse, Lever, and Ashby job boards.
     """
     queries: list[str] = []
 
@@ -38,7 +41,7 @@ def _build_search_queries(keywords: list[str]) -> list[str]:
         return []
 
     # Create queries scoped to ATS sites
-    site_filter = "site:lever.co OR site:boards.greenhouse.io"
+    site_filter = "site:lever.co OR site:boards.greenhouse.io OR site:jobs.ashbyhq.com"
 
     # Batch keywords into groups to avoid overly long queries
     for kw in keywords:
@@ -48,8 +51,8 @@ def _build_search_queries(keywords: list[str]) -> list[str]:
 
 
 def _extract_tokens(results: list[dict]) -> dict[str, set[str]]:
-    """Extract Greenhouse board tokens and Lever company slugs from URLs."""
-    tokens: dict[str, set[str]] = {"greenhouse": set(), "lever": set()}
+    """Extract Greenhouse board tokens, Lever company slugs, and Ashby slugs from URLs."""
+    tokens: dict[str, set[str]] = {"greenhouse": set(), "lever": set(), "ashby": set()}
 
     for r in results:
         url = r.get("url", "")
@@ -66,6 +69,12 @@ def _extract_tokens(results: list[dict]) -> dict[str, set[str]]:
             slug = lv_match.group(1).lower()
             if slug not in ("jobs", "postings", "api"):
                 tokens["lever"].add(slug)
+
+        as_match = ASHBY_PATTERN.search(url)
+        if as_match:
+            slug = as_match.group(1).lower()
+            if slug not in ("jobs", "postings", "api"):
+                tokens["ashby"].add(slug)
 
     return tokens
 
@@ -93,6 +102,21 @@ async def _probe_lever(slug: str) -> bool:
             if resp.status_code == 200:
                 data = resp.json()
                 return isinstance(data, list) and len(data) > 0
+    except Exception:
+        pass
+    return False
+
+
+async def _probe_ashby(slug: str) -> bool:
+    """Check if an Ashby company slug returns valid postings."""
+    url = f"https://api.ashbyhq.com/posting-api/job-board/{slug}"
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            resp = await client.get(url)
+            if resp.status_code == 200:
+                data = resp.json()
+                # Ashby returns metadata and jobs list
+                return len(data.get("jobs", [])) > 0
     except Exception:
         pass
     return False
@@ -130,11 +154,12 @@ class DiscoveryService:
                 logger.exception("Search failed for query: %s", query)
 
         tokens = _extract_tokens(all_results)
-        total_found = len(tokens["greenhouse"]) + len(tokens["lever"])
+        total_found = len(tokens["greenhouse"]) + len(tokens["lever"]) + len(tokens["ashby"])
         logger.info(
-            "Extracted tokens — Greenhouse: %d, Lever: %d",
+            "Extracted tokens — Greenhouse: %d, Lever: %d, Ashby: %d",
             len(tokens["greenhouse"]),
             len(tokens["lever"]),
+            len(tokens["ashby"]),
         )
 
         # 4. Filter out already-known companies
@@ -157,6 +182,14 @@ class DiscoveryService:
                 logger.info("✅ Discovered Lever company: %s", slug)
             else:
                 logger.debug("❌ Invalid Lever slug: %s", slug)
+
+        for slug in tokens["ashby"]:
+            if await _probe_ashby(slug):
+                await self._store_company(slug, "ashby")
+                added += 1
+                logger.info("✅ Discovered Ashby company: %s", slug)
+            else:
+                logger.debug("❌ Invalid Ashby slug: %s", slug)
 
         summary = {
             "queries_run": len(queries),
@@ -188,10 +221,12 @@ class DiscoveryService:
         filtered = {
             "greenhouse": {t for t in tokens["greenhouse"] if (t, "greenhouse") not in existing},
             "lever": {t for t in tokens["lever"] if (t, "lever") not in existing},
+            "ashby": {t for t in tokens["ashby"] if (t, "ashby") not in existing},
         }
-        skipped = (len(tokens["greenhouse"]) + len(tokens["lever"])) - (
-            len(filtered["greenhouse"]) + len(filtered["lever"])
+        skipped = (len(tokens["greenhouse"]) + len(tokens["lever"]) + len(tokens["ashby"])) - (
+            len(filtered["greenhouse"]) + len(filtered["lever"]) + len(filtered["ashby"])
         )
+
         if skipped:
             logger.info("Skipped %d already-known companies", skipped)
         return filtered
@@ -204,10 +239,12 @@ class DiscoveryService:
             {
                 "$set": {
                     "name": name,
+                    "slug": name,
                     "source": source,
                     "discovered_via": "brave_search",
                     "updated_at": now,
                 },
+
                 "$setOnInsert": {"created_at": now},
             },
             upsert=True,

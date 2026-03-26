@@ -75,17 +75,23 @@ class ScoringEngine:
             pipeline_lookup[p["job_id"]] = p
 
         async for job in cursor:
-            # Skip if goals haven't changed since last scoring
+            # Skip if ignored or goals haven't changed since last scoring
             existing = pipeline_lookup.get(job["job_id"])
-            if existing and existing.get("goals_fingerprint") == goals_fingerprint:
-                skipped_count += 1
-                if (skipped_count + scored_count) % 50 == 0:
-                    elapsed = time.monotonic() - _start
-                    logger.info(
-                        "Scoring progress: %d scored, %d skipped / %d total (%.1fs)",
-                        scored_count, skipped_count, total_jobs, elapsed
-                    )
-                continue
+            if existing:
+                if existing.get("status") == "ignored":
+                    skipped_count += 1
+                    continue
+                    
+                if existing.get("goals_fingerprint") == goals_fingerprint:
+                    skipped_count += 1
+                    if (skipped_count + scored_count) % 50 == 0:
+                        elapsed = time.monotonic() - _start
+                        logger.info(
+                            "Scoring progress: %d scored, %d skipped / %d total (%.1fs)",
+                            scored_count, skipped_count, total_jobs, elapsed
+                        )
+                    continue
+
             job_vector = job.get("vector")
             if not job_vector:
                 # Generate and cache job embedding
@@ -212,11 +218,13 @@ class ScoringEngine:
         ).hexdigest()[:12]
         logger.info("LLM inference run for user %s | fingerprint: %s", user_id, llm_fingerprint)
 
-        # Query all high-scoring jobs — inference manages its own staleness.
+        # Query high-scoring jobs that haven't been ignored or applied yet.
         candidate_cursor = self._db.pipeline.find({
             "user_id": user_id,
             "score": {"$gte": 49.5},
+            "status": {"$in": ["recommended", "saved"]}
         }).sort("score", -1).limit(50)
+
         
         inferred_count = 0
         skipped_count = 0

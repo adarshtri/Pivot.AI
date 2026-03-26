@@ -108,12 +108,14 @@ async def admin_trigger_ingestion(user_id: str = "user1") -> dict:
     from app.config import settings as env_settings
     from app.ingestion.greenhouse import GreenhouseProvider
     from app.ingestion.lever import LeverProvider
+    from app.ingestion.ashby import AshbyProvider
     from app.ingestion.service import IngestionService
 
     db = get_db()
     
     gh_tokens = []
     lv_slugs = []
+    as_slugs = []
 
     # Only include discovered companies
     async for doc in db.companies.find({"source": "greenhouse"}, {"name": 1}):
@@ -122,12 +124,17 @@ async def admin_trigger_ingestion(user_id: str = "user1") -> dict:
     async for doc in db.companies.find({"source": "lever"}, {"name": 1}):
         if doc["name"] not in lv_slugs:
             lv_slugs.append(doc["name"])
+    async for doc in db.companies.find({"source": "ashby"}, {"name": 1}):
+        if doc["name"] not in as_slugs:
+            as_slugs.append(doc["name"])
 
     providers = []
     if gh_tokens:
         providers.append(GreenhouseProvider(gh_tokens))
     if lv_slugs:
         providers.append(LeverProvider(lv_slugs))
+    if as_slugs:
+        providers.append(AshbyProvider(as_slugs))
 
     if not providers:
         return {"status": "skipped", "message": "No providers configured"}
@@ -135,3 +142,4 @@ async def admin_trigger_ingestion(user_id: str = "user1") -> dict:
     service = IngestionService(db, providers)
     summary = await service.run()
     return {"status": "completed", **summary}
+
