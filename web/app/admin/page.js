@@ -7,6 +7,7 @@ import {
   adminRunDiscovery,
   adminRunIngestion,
   triggerScoring,
+  triggerInference,
 } from "../lib/api";
 
 export default function AdminPage() {
@@ -16,9 +17,13 @@ export default function AdminPage() {
   const [discovering, setDiscovering] = useState(false);
   const [ingesting, setIngesting] = useState(false);
   const [scoring, setScoring] = useState(false);
+  const [inferring, setInferring] = useState(false);
 
   // Form state
   const [braveKey, setBraveKey] = useState("");
+  const [modelProvider, setModelProvider] = useState("ollama");
+  const [modelName, setModelName] = useState("phi4-mini");
+  const [llmApiKey, setLlmApiKey] = useState("");
   const [ingestionHours, setIngestionHours] = useState(6);
   const [discoveryHours, setDiscoveryHours] = useState(24);
 
@@ -28,6 +33,8 @@ export default function AdminPage() {
     getAdminSettings()
       .then((s) => {
         setSettings(s);
+        setModelProvider(s.model_provider || "ollama");
+        setModelName(s.model_name || "phi4-mini");
         setIngestionHours(s.ingestion_interval_hours || 6);
         setDiscoveryHours(s.discovery_interval_hours || 24);
       })
@@ -39,13 +46,17 @@ export default function AdminPage() {
     setSaving(true);
     try {
       const payload = {
-        brave_search_api_key: braveKey, // empty = keep existing
+        brave_search_api_key: braveKey || (settings?.brave_search_api_key_set ? "********" : ""),
+        llm_api_key: llmApiKey || (settings?.llm_api_key_set ? "********" : ""),
+        model_provider: modelProvider,
+        model_name: modelName,
         ingestion_interval_hours: ingestionHours,
         discovery_interval_hours: discoveryHours,
       };
       const result = await updateAdminSettings(payload);
       setSettings(result);
       setBraveKey("");
+      setLlmApiKey("");
       showToast("Settings saved");
     } catch (err) {
       showToast(err.message, "error");
@@ -79,18 +90,27 @@ export default function AdminPage() {
       setIngesting(false);
     }
   };
-
   const handleScoring = async () => {
     setScoring(true);
     try {
       const result = await triggerScoring("user1");
-      showToast(
-        `Scoring: ${result.total_scored} jobs scored (${result.new_pipeline_items} new items)`
-      );
+      showToast(result.message || "Scoring started in background");
     } catch (err) {
       showToast(err.message, "error");
     } finally {
       setScoring(false);
+    }
+  };
+
+  const handleInference = async () => {
+    setInferring(true);
+    try {
+      const result = await triggerInference("user1");
+      showToast(result.message || "LLM inference started in background");
+    } catch (err) {
+      showToast(err.message, "error");
+    } finally {
+      setInferring(false);
     }
   };
 
@@ -137,6 +157,14 @@ export default function AdminPage() {
             {scoring ? <Spinner /> : null}
             {scoring ? "Scoring…" : "🧠 Run AI Scoring"}
           </button>
+          <button
+            className="btn-primary flex items-center gap-2"
+            onClick={handleInference}
+            disabled={inferring}
+          >
+            {inferring ? <Spinner /> : null}
+            {inferring ? "Reasoning…" : "🤖 Run LLM Reasoning"}
+          </button>
         </div>
       </div>
 
@@ -150,7 +178,7 @@ export default function AdminPage() {
               Brave Search API Key
             </label>
             <input
-              className="input-dark"
+              className="input-dark w-full"
               type="password"
               value={braveKey}
               onChange={(e) => setBraveKey(e.target.value)}
@@ -162,6 +190,49 @@ export default function AdminPage() {
                 : "Get a free key at brave.com/search/api"}
             </p>
           </div>
+          
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div>
+              <label className="block text-xs font-semibold text-[#8a8ca0] uppercase tracking-wider mb-2">
+                Model Provider
+              </label>
+              <select
+                className="input-dark w-full"
+                value={modelProvider}
+                onChange={(e) => setModelProvider(e.target.value)}
+              >
+                <option value="ollama">Local (Ollama)</option>
+                <option value="groq">Cloud (Groq LPU)</option>
+              </select>
+            </div>
+            
+            <div>
+              <label className="block text-xs font-semibold text-[#8a8ca0] uppercase tracking-wider mb-2">
+                Model Name
+              </label>
+              <input
+                className="input-dark w-full"
+                type="text"
+                value={modelName}
+                onChange={(e) => setModelName(e.target.value)}
+                placeholder={modelProvider === "ollama" ? "e.g. phi4-mini, llama3.2" : "e.g. llama3-8b-8192"}
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-[#8a8ca0] uppercase tracking-wider mb-2">
+                API Key
+              </label>
+              <input
+                className="input-dark w-full"
+                type="password"
+                value={llmApiKey}
+                onChange={(e) => setLlmApiKey(e.target.value)}
+                placeholder={settings?.llm_api_key_set ? "••••••• (key is set)" : modelProvider === "groq" ? "Enter your Groq key" : "Not required for Ollama"}
+                disabled={modelProvider === "ollama"}
+              />
+            </div>
+          </div>
 
           <div className="grid grid-cols-2 gap-4">
             <div>
@@ -169,7 +240,7 @@ export default function AdminPage() {
                 Ingestion Interval (hours)
               </label>
               <input
-                className="input-dark"
+                className="input-dark w-full"
                 type="number"
                 min="1"
                 value={ingestionHours}
@@ -181,7 +252,7 @@ export default function AdminPage() {
                 Discovery Interval (hours)
               </label>
               <input
-                className="input-dark"
+                className="input-dark w-full"
                 type="number"
                 min="1"
                 value={discoveryHours}

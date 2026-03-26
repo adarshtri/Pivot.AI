@@ -95,7 +95,6 @@ body {
   font-size: 0.9rem;
   outline: none;
   transition: all 0.15s ease;
-  width: 100%;
 }
 .input-dark:focus {
   border-color: rgba(124, 92, 252, 0.5);

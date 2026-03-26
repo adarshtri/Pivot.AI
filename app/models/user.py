@@ -32,22 +32,33 @@ class ProfileResponse(BaseModel):
 # ── Goals ────────────────────────────────────────────────────────────────────
 
 
+from enum import Enum
+
+class GoalType(str, Enum):
+    LOCATION = "Location"
+    CAREER_DIRECTION = "Career Direction"
+    DOMAIN = "Domain"
+    TARGET_ROLE = "Target Role"
+
+class UserGoal(BaseModel):
+    """A granular rubric goal with an explicit priority weight."""
+    
+    id: str
+    type: GoalType = GoalType.TARGET_ROLE
+    text: str
+    weight: float = 1.0
+
+
 class GoalsPayload(BaseModel):
     """Request body for creating/updating user goals."""
 
     user_id: str
-    target_roles: list[str] = Field(default_factory=list)
-    domains: list[str] = Field(default_factory=list)
-    locations: list[str] = Field(default_factory=list)
-    career_direction: str = ""
+    goals: list[UserGoal] = Field(default_factory=list)
 
 
 class GoalsResponse(BaseModel):
     """Goals data returned to API consumers."""
 
     user_id: str
-    target_roles: list[str]
-    domains: list[str]
-    locations: list[str]
-    career_direction: str
+    goals: list[UserGoal]
     updated_at: datetime

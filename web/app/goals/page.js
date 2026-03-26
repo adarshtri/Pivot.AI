@@ -6,33 +6,37 @@ import { useToast, TagInput, Spinner } from "../components/ui";
 export default function GoalsPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [targetRoles, setTargetRoles] = useState([]);
-  const [domains, setDomains] = useState([]);
-  const [locations, setLocations] = useState([]);
-  const [careerDirection, setCareerDirection] = useState("");
+  const [goals, setGoals] = useState([]);
   const { showToast, ToastComponent } = useToast();
 
   useEffect(() => {
     getGoals("user1")
       .then((g) => {
-        setTargetRoles(g.target_roles || []);
-        setDomains(g.domains || []);
-        setLocations(g.locations || []);
-        setCareerDirection(g.career_direction || "");
+        setGoals(g.goals || []);
       })
       .catch(() => {})
       .finally(() => setLoading(false));
   }, []);
 
+  const handleAddGoal = () => {
+    setGoals([...goals, { id: crypto.randomUUID(), type: "Target Role", text: "", weight: 1.0 }]);
+  };
+
+  const updateGoal = (id, field, value) => {
+    setGoals(goals.map(g => g.id === id ? { ...g, [field]: value } : g));
+  };
+
+  const removeGoal = (id) => {
+    setGoals(goals.filter(g => g.id !== id));
+  };
+
   const handleSave = async () => {
     setSaving(true);
     try {
+      const validGoals = goals.filter(g => g.text.trim());
       await upsertGoals({
         user_id: "user1",
-        target_roles: targetRoles,
-        domains,
-        locations,
-        career_direction: careerDirection,
+        goals: validGoals,
       });
       showToast("Goals saved successfully");
     } catch (err) {
@@ -59,57 +63,58 @@ export default function GoalsPage() {
         </p>
       </div>
 
-      <div className="glass-card p-6 max-w-2xl">
-        <div className="mb-6">
-          <label className="block text-xs font-semibold text-[#8a8ca0] uppercase tracking-wider mb-2">
-            Target Roles
-          </label>
-          <TagInput
-            tags={targetRoles}
-            onAdd={(tag) => setTargetRoles([...targetRoles, tag])}
-            onRemove={(tag) => setTargetRoles(targetRoles.filter((r) => r !== tag))}
-            placeholder="e.g. AI Engineer, ML Infra Engineer"
-          />
+      <div className="glass-card p-6 max-w-4xl">
+        <label className="block text-xs font-semibold text-[#8a8ca0] uppercase tracking-wider mb-4">
+          Priority Rubric
+        </label>
+        
+        <div className="space-y-4 mb-6">
+          {goals.map(g => (
+            <div key={g.id} className="flex items-center gap-3">
+              <select
+                className="input-dark w-40 shrink-0"
+                value={g.type}
+                onChange={e => updateGoal(g.id, "type", e.target.value)}
+              >
+                <option value="Target Role">Role</option>
+                <option value="Domain">Domain</option>
+                <option value="Location">Location</option>
+                <option value="Career Direction">Direction</option>
+              </select>
+              <input 
+                className="input-dark flex-1" 
+                value={g.text} 
+                onChange={e => updateGoal(g.id, "text", e.target.value)} 
+                placeholder="e.g. Senior Software Engineer" 
+              />
+              <select 
+                className="input-dark w-48" 
+                value={g.weight} 
+                onChange={e => updateGoal(g.id, "weight", parseFloat(e.target.value))}
+              >
+                <option value={10}>Dealbreaker (10x)</option>
+                <option value={5}>High Priority (5x)</option>
+                <option value={1}>Standard (1x)</option>
+              </select>
+              <button 
+                className="w-10 h-10 flex items-center justify-center rounded-xl bg-white/5 text-[#5a5c72] hover:bg-red-500/10 hover:text-red-400 transition-colors"
+                onClick={() => removeGoal(g.id)}
+              >
+                ✕
+              </button>
+            </div>
+          ))}
+          {goals.length === 0 && (
+            <p className="text-sm text-[#5a5c72] italic">No goals defined. Add some rules to teach the AI what you want.</p>
+          )}
         </div>
-
-        <div className="mb-6">
-          <label className="block text-xs font-semibold text-[#8a8ca0] uppercase tracking-wider mb-2">
-            Domains
-          </label>
-          <TagInput
-            tags={domains}
-            onAdd={(tag) => setDomains([...domains, tag])}
-            onRemove={(tag) => setDomains(domains.filter((d) => d !== tag))}
-            placeholder="e.g. AI, systems, infrastructure"
-          />
-          <p className="text-xs text-[#5a5c72] mt-2">
-            Used by discovery to find companies hiring in these areas.
-          </p>
-        </div>
-
-        <div className="mb-6">
-          <label className="block text-xs font-semibold text-[#8a8ca0] uppercase tracking-wider mb-2">
-            Locations
-          </label>
-          <TagInput
-            tags={locations}
-            onAdd={(tag) => setLocations([...locations, tag])}
-            onRemove={(tag) => setLocations(locations.filter((l) => l !== tag))}
-            placeholder="e.g. San Francisco, Remote, New York"
-          />
-        </div>
-
-        <div className="mb-8">
-          <label className="block text-xs font-semibold text-[#8a8ca0] uppercase tracking-wider mb-2">
-            Career Direction
-          </label>
-          <input
-            className="input-dark"
-            value={careerDirection}
-            onChange={(e) => setCareerDirection(e.target.value)}
-            placeholder="e.g. Technical leadership in AI systems"
-          />
-        </div>
+        
+        <button 
+          className="text-sm font-medium text-[#7c5cfc] hover:brightness-110 flex items-center gap-2 mb-8 transition-all"
+          onClick={handleAddGoal}
+        >
+          <span className="text-lg">+</span> Add Rubric Goal
+        </button>
 
         <button
           className="btn-primary flex items-center gap-2"

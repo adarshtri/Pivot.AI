@@ -43,7 +43,11 @@ export const triggerDiscovery = () =>
   request("/discovery/run", { method: "POST" });
 
 // Pipeline & Scoring
-export const getPipeline = (userId) => request(`/pipeline/${userId}`);
+export const getPipeline = (userId, params = {}) => {
+  const qs = new URLSearchParams(params).toString();
+  return request(`/pipeline/${userId}${qs ? `?${qs}` : ""}`);
+};
+
 export const updatePipelineStatus = (userId, jobId, status) =>
   request(`/pipeline/${userId}/${jobId}/status`, {
     method: "PUT",
@@ -51,6 +55,8 @@ export const updatePipelineStatus = (userId, jobId, status) =>
   });
 export const triggerScoring = (userId) =>
   request(`/pipeline/${userId}/score`, { method: "POST" });
+export const triggerInference = (userId) =>
+  request(`/pipeline/${userId}/infer`, { method: "POST" });
 
 // Admin Settings & Operations
 export const getAdminSettings = () => request("/admin/settings");

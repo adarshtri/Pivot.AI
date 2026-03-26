@@ -64,7 +64,7 @@ export function TagInput({ tags, onAdd, onRemove, placeholder }) {
         ))}
       </div>
       <input
-        className="input-dark"
+        className="input-dark w-full"
         value={value}
         onChange={(e) => setValue(e.target.value)}
         onKeyDown={handleKeyDown}

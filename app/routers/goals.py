@@ -21,20 +21,16 @@ async def upsert_goals(payload: GoalsPayload) -> GoalsResponse:
 
     await db.users.update_one(
         {"user_id": payload.user_id},
-        {"$set": {f"goals.{k}": v for k, v in doc.items() if k != "user_id"}},
+        {"$set": {"goals": doc["goals"], "goals_updated_at": doc["updated_at"]}},
         upsert=True,
     )
 
     # Return the full goals record
     user = await db.users.find_one({"user_id": payload.user_id}, {"_id": 0})
-    goals_data = user.get("goals", {})
     return GoalsResponse(
         user_id=payload.user_id,
-        target_roles=goals_data.get("target_roles", []),
-        domains=goals_data.get("domains", []),
-        locations=goals_data.get("locations", []),
-        career_direction=goals_data.get("career_direction", ""),
-        updated_at=goals_data.get("updated_at", now),
+        goals=user.get("goals", []),
+        updated_at=user.get("goals_updated_at", now),
     )
 
 
@@ -46,15 +42,8 @@ async def get_goals(user_id: str) -> GoalsResponse:
     if not user:
         raise HTTPException(status_code=404, detail=f"User not found: '{user_id}'")
 
-    goals_data = user.get("goals", {})
-    if not goals_data:
-        raise HTTPException(status_code=404, detail=f"Goals not set for user '{user_id}'")
-
     return GoalsResponse(
         user_id=user_id,
-        target_roles=goals_data.get("target_roles", []),
-        domains=goals_data.get("domains", []),
-        locations=goals_data.get("locations", []),
-        career_direction=goals_data.get("career_direction", ""),
-        updated_at=goals_data.get("updated_at", datetime.now(timezone.utc)),
+        goals=user.get("goals", []),
+        updated_at=user.get("goals_updated_at", datetime.now(timezone.utc)),
     )

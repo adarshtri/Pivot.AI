@@ -27,26 +27,12 @@ LEVER_PATTERN = re.compile(
 )
 
 
-def _build_search_queries(goals: dict) -> list[str]:
-    """Generate search queries from a user's goals.
+def _build_search_queries(keywords: list[str]) -> list[str]:
+    """Generate search queries from a list of user goal keywords.
 
-    Combines target_roles and domains to produce queries scoped to
-    Greenhouse and Lever job boards.
+    Builds queries scoped to Greenhouse and Lever job boards.
     """
     queries: list[str] = []
-
-    target_roles = goals.get("target_roles", [])
-    domains = goals.get("domains", [])
-    locations = goals.get("locations", [])
-
-    # Build keyword parts from roles, domains, and locations
-    keywords: list[str] = []
-    if target_roles:
-        keywords.extend(target_roles)
-    if domains:
-        keywords.extend(domains)
-    if locations:
-        keywords.extend(locations)
 
     if not keywords:
         return []
@@ -124,14 +110,14 @@ class DiscoveryService:
 
         Returns summary: {"queries_run": N, "tokens_found": M, "companies_added": K}
         """
-        # 1. Gather all unique goals from users
-        all_goals = await self._collect_goals()
-        if not all_goals:
+        # 1. Gather all unique goal texts from users
+        keywords = await self._collect_goals()
+        if not keywords:
             logger.warning("No user goals found — skipping discovery.")
             return {"queries_run": 0, "tokens_found": 0, "companies_added": 0}
 
         # 2. Build search queries
-        queries = _build_search_queries(all_goals)
+        queries = _build_search_queries(keywords)
         logger.info("Discovery: %d queries from user goals", len(queries))
 
         # 3. Search and extract tokens
@@ -180,20 +166,18 @@ class DiscoveryService:
         logger.info("Discovery complete: %s", summary)
         return summary
 
-    async def _collect_goals(self) -> dict:
-        """Merge goals from all users into a combined set."""
-        merged: dict[str, list] = {"target_roles": [], "domains": [], "locations": []}
+    async def _collect_goals(self) -> list[str]:
+        """Merge goal texts from all users into a combined set of keywords."""
+        keywords: set[str] = set()
         async for user in self._db.users.find({"goals": {"$exists": True}}, {"goals": 1}):
-            goals = user.get("goals", {})
-            merged["target_roles"].extend(goals.get("target_roles", []))
-            merged["domains"].extend(goals.get("domains", []))
-            merged["locations"].extend(goals.get("locations", []))
+            goals = user.get("goals", [])
+            for g in goals:
+                if isinstance(g, dict) and "text" in g:
+                    g_type = g.get("type", "Target Role")
+                    if g_type in ("Domain", "Target Role"):
+                        keywords.add(g["text"])
 
-        # Deduplicate
-        merged["target_roles"] = list(set(merged["target_roles"]))
-        merged["domains"] = list(set(merged["domains"]))
-        merged["locations"] = list(set(merged["locations"]))
-        return merged
+        return list(keywords)
 
     async def _filter_known(self, tokens: dict[str, set[str]]) -> dict[str, set[str]]:
         """Remove tokens that are already in the companies collection."""

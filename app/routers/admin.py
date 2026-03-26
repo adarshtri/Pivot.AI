@@ -49,11 +49,18 @@ async def update_settings(payload: AdminSettings, user_id: str = "user1") -> Adm
     doc = payload.model_dump()
     doc["updated_at"] = datetime.now(timezone.utc)
 
-    # If brave_search_api_key is empty, keep the existing one
-    if not payload.brave_search_api_key:
-        existing = await db.admin_settings.find_one({"_id": "settings"})
+    # Fetch existing settings once to handle masked/empty API keys
+    existing = await db.admin_settings.find_one({"_id": "settings"})
+
+    # If brave_search_api_key is empty or masked, keep the existing one
+    if not payload.brave_search_api_key or payload.brave_search_api_key == "********":
         if existing and existing.get("brave_search_api_key"):
             doc["brave_search_api_key"] = existing["brave_search_api_key"]
+            
+    # If llm_api_key is empty or masked, keep the existing one
+    if not payload.llm_api_key or payload.llm_api_key == "********":
+        if existing and existing.get("llm_api_key"):
+            doc["llm_api_key"] = existing["llm_api_key"]
 
     await db.admin_settings.update_one(
         {"_id": "settings"},

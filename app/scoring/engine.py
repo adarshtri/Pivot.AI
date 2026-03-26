@@ -1,10 +1,13 @@
 """AI Scoring Engine for evaluating job fit against user profiles."""
 
 import logging
+import hashlib
+import json
 from datetime import datetime, timezone
 
 from motor.motor_asyncio import AsyncIOMotorDatabase
 from app.scoring.embeddings import EmbeddingsService
+from app.scoring.llm import LLMProvider, OllamaClient, GroqClient
 
 logger = logging.getLogger(__name__)
 
@@ -15,11 +18,28 @@ class ScoringEngine:
         self._db = db
         # Lazy initialization of the embeddings model
         self._embeddings_service: EmbeddingsService | None = None
+        self._llm_client: LLMProvider | None = None
 
     def _get_embeddings_service(self) -> EmbeddingsService:
         if self._embeddings_service is None:
             self._embeddings_service = EmbeddingsService()
         return self._embeddings_service
+
+    async def _get_llm_client(self) -> LLMProvider:
+        if self._llm_client is None:
+            settings = await self._db.admin_settings.find_one({"_id": "settings"}) or {}
+            provider = settings.get("model_provider", "ollama")
+            model_name = settings.get("model_name", "phi4-mini")
+            
+            if provider == "groq":
+                self._llm_client = GroqClient(
+                    api_key=settings.get("llm_api_key", ""),
+                    model=model_name
+                )
+            else:
+                self._llm_client = OllamaClient(model=model_name)
+                
+        return self._llm_client
 
     async def run(self, user_id: str) -> dict:
         """Score all unscored (or updated) jobs for the given user."""
@@ -29,28 +49,25 @@ class ScoringEngine:
             logger.warning("Scoring failed: User '%s' not found.", user_id)
             return {"status": "skipped", "reason": "User not found"}
             
-        profile = user.get("skills", []) + [user.get("experience_level", ""), user.get("current_role", "")]
-        goals = user.get("goals", {})
+        goals = user.get("goals", [])
         
-        # Build a dense user vector representation
-        user_text = f"Role: {user.get('current_role', '')}. "
-        user_text += f"Experience: {user.get('experience_level', '')}. "
-        user_text += f"Skills: {', '.join(user.get('skills', []))}. "
-        user_text += f"Target Roles: {', '.join(goals.get('target_roles', []))}. "
-        user_text += f"Target Domains: {', '.join(goals.get('domains', []))}. "
-        user_text += f"Preferred Locations: {', '.join(goals.get('locations', []))}. "
-        user_text += f"Career Direction: {goals.get('career_direction', '')}."
+        # Compute a content fingerprint of the current goals.
+        # If it matches what's stored on a pipeline item, skip re-scoring.
+        goals_fingerprint = hashlib.md5(
+            json.dumps(goals, sort_keys=True, default=str).encode()
+        ).hexdigest()[:12]
+        logger.info("Scoring run for user %s | goals fingerprint: %s", user_id, goals_fingerprint)
         
         embed_svc = self._get_embeddings_service()
-        user_vector = await embed_svc.embed_text(user_text)
-        if not user_vector:
-            logger.error("Failed to generate user vector for '%s'", user_id)
-            return {"status": "failed", "reason": "User embedding failed"}
 
         # 2. Iterate through jobs
+        total_jobs = await self._db.jobs.count_documents({})
         cursor = self._db.jobs.find({})
         scored_count = 0
+        skipped_count = 0
         updated_count = 0
+        import time
+        _start = time.monotonic()
         
         # Pre-fetch existing pipeline to avoid overwriting user statuses (like "saved")
         pipeline_lookup = {}
@@ -58,14 +75,23 @@ class ScoringEngine:
             pipeline_lookup[p["job_id"]] = p
 
         async for job in cursor:
-            # We cache the job vector in the jobs collection itself
+            # Skip if goals haven't changed since last scoring
+            existing = pipeline_lookup.get(job["job_id"])
+            if existing and existing.get("goals_fingerprint") == goals_fingerprint:
+                skipped_count += 1
+                if (skipped_count + scored_count) % 50 == 0:
+                    elapsed = time.monotonic() - _start
+                    logger.info(
+                        "Scoring progress: %d scored, %d skipped / %d total (%.1fs)",
+                        scored_count, skipped_count, total_jobs, elapsed
+                    )
+                continue
             job_vector = job.get("vector")
             if not job_vector:
                 # Generate and cache job embedding
                 job_text = f"Title: {job.get('role', '')}. "
                 job_text += f"Company: {job.get('company', '')}. "
                 job_text += f"Location: {job.get('location', '')}. "
-                # We truncate description to avoid massive context token lengths
                 desc = job.get('description', '')[:2000]
                 job_text += f"Description: {desc}"
                 
@@ -77,107 +103,69 @@ class ScoringEngine:
                     )
             
             if not job_vector:
-                continue # Skip if embedding failed entirely
+                continue
                 
-            # 3. Compute Semantic Score (0.0 to 1.0)
-            cos_sim = embed_svc.compute_similarity(user_vector, job_vector)
+            # 3. Compute score per goal
+            goal_scores = {}
+            total_weight = 0.0
+            weighted_score_sum = 0.0
             
-            # Baseline semantic score out of 70
-            semantic_score = cos_sim * 70.0
-            
-            # 4. Compute Heuristic Score (out of 30)
-            heuristic_score = 0.0
-            
-            # Location bump or penalty (Semantic Match)
-            job_loc = job.get("location", "").strip()
-            user_locs = [loc.strip() for loc in goals.get("locations", []) if loc.strip()]
-            
-            is_loc_match = False
-            
-            # Check for remote explicitly first (often not semantically caught)
-            job_loc_lower = job_loc.lower()
-            user_locs_lower = [l.lower() for l in user_locs]
-            if "remote" in job_loc_lower and "remote" in user_locs_lower:
-                is_loc_match = True
-            
-            # If not explicitly remote, evaluate semantics
-            elif user_locs and job_loc:
-                # We can generate a quick vector for the job's location string
-                job_loc_vector = await embed_svc.embed_text(job_loc)
+            for goal in goals:
+                g_id = goal.get("id", "")
+                g_type = goal.get("type", "Unknown")
+                g_text = goal.get("text", "")
+                g_weight = float(goal.get("weight", 1.0))
                 
-                for user_loc in user_locs:
-                    # Simple strict substring check just in case
-                    if user_loc.lower() in job_loc_lower or job_loc_lower in user_loc.lower():
-                        is_loc_match = True
-                        break
-                        
-                    # Semantic check
-                    # (In production, user_loc_vectors could be cached to save ms, but fastembed is fast enough)
-                    user_loc_vector = await embed_svc.embed_text(user_loc)
-                    if job_loc_vector and user_loc_vector:
-                        loc_sim = embed_svc.compute_similarity(user_loc_vector, job_loc_vector)
-                        # Threshold of 0.85 ensures we capture formatting differences ("San Jose, CA" vs "San Jose")
-                        # but strictly exclude different cities ("San Jose" vs "San Francisco" ~0.78)
-                        if loc_sim > 0.85:
-                            is_loc_match = True
-                            break
-                            
-            if user_locs and job_loc:
-                if is_loc_match:
-                    heuristic_score += 15.0
-                else:
-                    # Severe penalty for geographic mismatch
-                    heuristic_score -= 40.0
-            
-            # Role match bump or penalty (Semantic Match against Job Title)
-            job_role = job.get("role", "").strip()
-            user_roles = [r.strip() for r in goals.get("target_roles", []) if r.strip()]
-            
-            if user_roles and job_role:
-                job_role_vector = await embed_svc.embed_text(job_role)
-                max_role_sim = 0.0
+                if not g_text or not g_id:
+                    continue
+                    
+                total_weight += g_weight
+                g_vector = await embed_svc.embed_text(g_text)
                 
-                for r in user_roles:
-                    # Quick exact substring check
-                    if r.lower() in job_role.lower() or job_role.lower() in r.lower():
-                        max_role_sim = 1.0
-                        break
-                        
-                    r_vector = await embed_svc.embed_text(r)
-                    if job_role_vector and r_vector:
-                        r_sim = embed_svc.compute_similarity(r_vector, job_role_vector)
-                        max_role_sim = max(max_role_sim, r_sim)
-                
-                if max_role_sim > 0.70:
-                    heuristic_score += 15.0  # Strong title match
-                elif max_role_sim < 0.65:
-                    # Severe penalty for fundamentally mismatched departments (e.g. Sales vs Engineering)
-                    heuristic_score -= 50.0
-                
-            final_score = min(100.0, semantic_score + heuristic_score)
+                if job_vector and g_vector:
+                    sim = embed_svc.compute_similarity(g_vector, job_vector)
+                    # Normalize BGE Cosine Similarity (~0.3 to 1.0) into a 0-100 rubric scale
+                    base_score = max(0.0, sim * 100.0)
+                    clamped_score = min(100.0, base_score)
+                    
+                    goal_scores[g_text] = {
+                        "score": round(clamped_score, 1),
+                        "weight": g_weight,
+                        "category": g_type
+                    }
+                    weighted_score_sum += clamped_score * g_weight
             
+            if total_weight > 0:
+                final_score = weighted_score_sum / total_weight
+            else:
+                final_score = 0.0
+            
+            # 4. Sieve and Scalpel Logic
+            if round(final_score) >= 50:
+                rationale = "Pending LLM Reasoning"
+            else:
+                rationale = "Mathematically filtered by priority rubric."
+
             # 5. Determine status and upsert to pipeline
             existing = pipeline_lookup.get(job["job_id"])
             current_status = existing.get("status", "recommended") if existing else "recommended"
-            
-            # Formulate a quick rationale
-            rationale_parts = []
-            if heuristic_score >= 15:
-                rationale_parts.append("Location/Role match")
-            if semantic_score > 45:
-                rationale_parts.append("Strong semantic fit")
-            elif semantic_score > 35:
-                rationale_parts.append("Moderate semantic fit")
-            rationale = " & ".join(rationale_parts) if rationale_parts else "Weak fit"
 
             now = datetime.now(timezone.utc)
+            
+            # When rescoring, always reset the LLM fields so stale verdicts
+            # don't show alongside a "Pending LLM Reasoning" rationale.
+            llm_verdict_reset = None
+            
             await self._db.pipeline.update_one(
                 {"user_id": user_id, "job_id": job["job_id"]},
                 {
                     "$set": {
                         "score": round(final_score, 1),
+                        "goal_scores": goal_scores,
                         "status": current_status,
                         "rationale": rationale,
+                        "llm_verdict": llm_verdict_reset,
+                        "goals_fingerprint": goals_fingerprint,
                         "updated_at": now
                     }
                 },
@@ -186,11 +174,89 @@ class ScoringEngine:
             scored_count += 1
             if existing:
                 updated_count += 1
+            
+            if scored_count % 50 == 0:
+                elapsed = time.monotonic() - _start
+                logger.info(
+                    "Scoring progress: %d scored, %d skipped / %d total (%.1fs elapsed)",
+                    scored_count, skipped_count, total_jobs, elapsed
+                )
 
         summary = {
             "status": "completed", 
-            "total_scored": scored_count, 
+            "total_scored": scored_count,
+            "total_skipped": skipped_count,
             "new_pipeline_items": scored_count - updated_count
         }
         logger.info("Scoring Engine completed for user %s: %s", user_id, summary)
+        
+        # Cleanup
+        if self._llm_client:
+            await self._llm_client.close()
+            
+        return summary
+
+    async def run_inference(self, user_id: str) -> dict:
+        """Run the LLM Scalpel on jobs whose LLM fingerprint is stale or missing."""
+        user = await self._db.users.find_one({"user_id": user_id})
+        if not user:
+            return {"status": "skipped", "reason": "User not found"}
+        
+        goals = user.get("goals", [])
+        
+        # Compute the LLM's own independent goals fingerprint.
+        # This lets inference run and skip correctly regardless of whether
+        # math scoring was run first.
+        llm_fingerprint = hashlib.md5(
+            json.dumps(goals, sort_keys=True, default=str).encode()
+        ).hexdigest()[:12]
+        logger.info("LLM inference run for user %s | fingerprint: %s", user_id, llm_fingerprint)
+
+        # Query all high-scoring jobs — inference manages its own staleness.
+        candidate_cursor = self._db.pipeline.find({
+            "user_id": user_id,
+            "score": {"$gte": 49.5},
+        }).sort("score", -1).limit(50)
+        
+        inferred_count = 0
+        skipped_count = 0
+        import time
+        _start = time.monotonic()
+        llm = await self._get_llm_client()
+        
+        async for p in candidate_cursor:
+            # Skip if already inferred with the current goals state
+            if p.get("llm_goals_fingerprint") == llm_fingerprint:
+                skipped_count += 1
+                continue
+
+            job = await self._db.jobs.find_one({"job_id": p["job_id"]})
+            if not job:
+                continue
+                
+            result = await llm.generate_rationale(job, goals)
+            
+            await self._db.pipeline.update_one(
+                {"user_id": user_id, "job_id": job["job_id"]},
+                {"$set": {
+                    "rationale": result.get("reasoning", ""),
+                    "llm_verdict": result.get("verdict", "Moderate Match"),
+                    "llm_goals_fingerprint": llm_fingerprint,
+                }}
+            )
+            inferred_count += 1
+            
+            total_processed = inferred_count + skipped_count
+            if total_processed % 10 == 0:
+                elapsed = time.monotonic() - _start
+                logger.info(
+                    "LLM inference progress: %d inferred, %d skipped (%.1fs elapsed)",
+                    inferred_count, skipped_count, elapsed
+                )
+            
+        if self._llm_client:
+            await self._llm_client.close()
+
+        summary = {"status": "completed", "inferred_jobs": inferred_count, "skipped_jobs": skipped_count}
+        logger.info("LLM inference complete for user %s: %s", user_id, summary)
         return summary

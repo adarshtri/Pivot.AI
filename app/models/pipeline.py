@@ -1,5 +1,6 @@
 """Pipeline models for tracking job match scores and user actions."""
 
+from typing import Any
 from datetime import datetime, timezone
 from pydantic import BaseModel, Field
 
@@ -9,8 +10,12 @@ class PipelineItem(BaseModel):
     user_id: str
     job_id: str
     score: float = 0.0
+    goal_scores: dict[str, Any] = Field(default_factory=dict)
     status: str = "recommended"  # recommended, saved, applied, ignored
     rationale: str = ""
+    llm_verdict: str | None = None
+    goals_fingerprint: str | None = None
+    llm_goals_fingerprint: str | None = None
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 class PipelineResponse(BaseModel):
@@ -27,6 +32,21 @@ class PipelineResponse(BaseModel):
     created_at: datetime
     
     pipeline_score: float
+    pipeline_goal_scores: dict[str, Any]
     pipeline_status: str
     pipeline_rationale: str
+    pipeline_llm_verdict: str | None = None
     pipeline_updated_at: datetime
+
+
+class PaginatedPipelineResponse(BaseModel):
+    """Response model for a paginated list of pipeline items."""
+    
+    items: list[PipelineResponse]
+    total: int
+    page: int
+    limit: int
+    total_pages: int
+    counts: dict[str, int] = Field(default_factory=dict)
+
+
