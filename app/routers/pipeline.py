@@ -39,7 +39,8 @@ async def get_pipeline(
         "recommended": 0,
         "saved": 0,
         "applied": 0,
-        "ignored": 0
+        "ignored": 0,
+        "closed": 0
     }
     for item in counts_data:
         if item["_id"] in counts_dict:
@@ -94,7 +95,7 @@ async def get_pipeline(
             pipeline_rationale=p_item.get("rationale", ""),
             pipeline_ignore_reason=p_item.get("ignore_reason", None),
             pipeline_llm_verdict=p_item.get("llm_verdict", None),
-
+            pipeline_closed_at=job.get("closed_at"),
             pipeline_updated_at=p_item.get("updated_at")
         ))
         

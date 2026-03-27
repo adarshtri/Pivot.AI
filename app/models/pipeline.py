@@ -1,6 +1,6 @@
 """Pipeline models for tracking job match scores and user actions."""
 
-from typing import Any
+from typing import Any, Optional
 from datetime import datetime, timezone
 from pydantic import BaseModel, Field
 
@@ -40,6 +40,7 @@ class PipelineResponse(BaseModel):
     pipeline_ignore_reason: str | None = None
     pipeline_llm_verdict: str | None = None
 
+    pipeline_closed_at: Optional[datetime] = None
     pipeline_updated_at: datetime
 
 

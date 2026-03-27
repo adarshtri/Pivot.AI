@@ -78,6 +78,7 @@ export default function JobsPage() {
     { id: "saved", label: "Saved" },
     { id: "applied", label: "Applied" },
     { id: "ignored", label: "Ignored" },
+    { id: "closed", label: "Closed" },
   ];
 
   const Pagination = () => {
@@ -301,7 +302,7 @@ export default function JobsPage() {
                 {/* Actions Footer */}
                 <div className="p-3 bg-[#161726] border-t border-[#2a2b40] rounded-b-xl flex justify-between items-center gap-2">
                   <div className="flex gap-2">
-                    {activeTab !== "ignored" && (
+                    {activeTab !== "ignored" && activeTab !== "closed" && (
                       <button 
                         onClick={() => handleStatusUpdate(job.job_id, "ignored")}
                         className="px-3 py-1.5 text-xs font-semibold text-[#8a8ca0] hover:text-white hover:bg-[#2a2b40] rounded-md transition-colors"
@@ -309,7 +310,7 @@ export default function JobsPage() {
                         Ignore
                       </button>
                     )}
-                    {activeTab !== "saved" && activeTab === "recommended" && (
+                    {activeTab !== "saved" && activeTab === "recommended" && activeTab !== "closed" && (
                       <button 
                         onClick={() => handleStatusUpdate(job.job_id, "saved")}
                         className="px-3 py-1.5 text-xs font-semibold text-[#56d364] hover:bg-[#56d364]/10 rounded-md transition-colors"
@@ -317,7 +318,7 @@ export default function JobsPage() {
                         Save
                       </button>
                     )}
-                    {activeTab !== "applied" && (
+                    {activeTab !== "applied" && activeTab !== "closed" && (
                       <button 
                         onClick={() => handleStatusUpdate(job.job_id, "applied")}
                         className="px-3 py-1.5 text-xs font-semibold text-[var(--accent)] hover:bg-[var(--accent)]/10 rounded-md transition-colors"
@@ -337,7 +338,7 @@ export default function JobsPage() {
                       View Posting
                     </a>
                     
-                    {activeTab !== "applied" && (
+                    {activeTab !== "applied" && activeTab !== "closed" && (
                       <a
                         href={job.url}
                         target="_blank"
@@ -347,6 +348,12 @@ export default function JobsPage() {
                       >
                         Apply Now →
                       </a>
+                    )}
+                    {activeTab === "closed" && (
+                      <div className="flex items-center gap-2 px-3 py-1.5 bg-red-400/5 border border-red-400/20 rounded-md">
+                        <span className="w-1.5 h-1.5 rounded-full bg-red-400" />
+                        <span className="text-[10px] font-black uppercase text-red-400 tracking-widest">Opportunity Closed</span>
+                      </div>
                     )}
                   </div>
                 </div>
