@@ -52,15 +52,22 @@ class ScoringEngine:
             return {"status": "skipped", "reason": "User not found"}
             
         goals = user.get("goals", [])
+        skills = user.get("skills", [])
         
-        # Compute a content fingerprint of the current goals.
+        # Compute a content fingerprint of the current goals AND skills.
         # If it matches what's stored on a pipeline item, skip re-scoring.
-        goals_fingerprint = hashlib.md5(
-            json.dumps(goals, sort_keys=True, default=str).encode()
+        state_payload = {"goals": goals, "skills": skills}
+        state_fingerprint = hashlib.md5(
+            json.dumps(state_payload, sort_keys=True, default=str).encode()
         ).hexdigest()[:12]
-        logger.info("Scoring run for user %s | goals fingerprint: %s", user_id, goals_fingerprint)
+        
+        logger.info("Scoring run for user %s | state fingerprint: %s", user_id, state_fingerprint)
         
         embed_svc = self._get_embeddings_service()
+
+        # Pre-compute User Skills Vector
+        skills_text = ", ".join(skills)
+        skills_vector = await embed_svc.embed_text(skills_text) if skills else None
 
         # 2. Iterate through jobs
         total_jobs = await self._db.jobs.count_documents({})
@@ -77,14 +84,14 @@ class ScoringEngine:
             pipeline_lookup[p["job_id"]] = p
 
         async for job in cursor:
-            # Skip if ignored or goals haven't changed since last scoring
+            # Skip if ignored or goals/skills haven't changed since last scoring
             existing = pipeline_lookup.get(job["job_id"])
             if existing:
                 if existing.get("status") == "ignored":
                     skipped_count += 1
                     continue
                     
-                if existing.get("goals_fingerprint") == goals_fingerprint:
+                if existing.get("goals_fingerprint") == state_fingerprint:
                     skipped_count += 1
                     if (skipped_count + scored_count) % 50 == 0:
                         elapsed = time.monotonic() - _start
@@ -113,18 +120,16 @@ class ScoringEngine:
             if not job_vector:
                 continue
                 
-            # 3. Compute score per goal
-            goal_scores = {}
+            # 3. Compute Goal Score
             total_weight = 0.0
-            weighted_score_sum = 0.0
+            weighted_goal_sum = 0.0
+            goal_scores = {}
             
             for goal in goals:
-                g_id = goal.get("id", "")
-                g_type = goal.get("type", "Unknown")
                 g_text = goal.get("text", "")
                 g_weight = float(goal.get("weight", 1.0))
                 
-                if not g_text or not g_id:
+                if not g_text:
                     continue
                     
                 total_weight += g_weight
@@ -132,37 +137,35 @@ class ScoringEngine:
                 
                 if job_vector and g_vector:
                     sim = embed_svc.compute_similarity(g_vector, job_vector)
-                    # Normalize BGE Cosine Similarity (~0.3 to 1.0) into a 0-100 rubric scale
-                    base_score = max(0.0, sim * 100.0)
-                    clamped_score = min(100.0, base_score)
-                    
+                    clamped_score = min(100.0, max(0.0, sim * 100.0))
                     goal_scores[g_text] = {
                         "score": round(clamped_score, 1),
-                        "weight": g_weight,
-                        "category": g_type
+                        "weight": g_weight
                     }
-                    weighted_score_sum += clamped_score * g_weight
+                    weighted_goal_sum += clamped_score * g_weight
             
-            if total_weight > 0:
-                final_score = weighted_score_sum / total_weight
-            else:
-                final_score = 0.0
+            goal_avg = (weighted_goal_sum / total_weight) if total_weight > 0 else 0.0
+
+            # 4. Compute Skill Match Score
+            skill_score = 0.0
+            if skills_vector and job_vector:
+                skill_sim = embed_svc.compute_similarity(skills_vector, job_vector)
+                skill_score = min(100.0, max(0.0, skill_sim * 100.0))
+
+            # 5. Blend Final Score (70% Goals, 30% Skills)
+            final_score = (goal_avg * 0.7) + (skill_score * 0.3)
             
-            # 4. Sieve and Scalpel Logic
+            # 6. Sieve and Scalpel Logic
             if round(final_score) >= 50:
                 rationale = "Pending LLM Reasoning"
             else:
-                rationale = "Mathematically filtered by priority rubric."
+                rationale = "Mathematically filtered by priority & skill match."
 
-            # 5. Determine status and upsert to pipeline
+            # 7. Determine status and upsert to pipeline
             existing = pipeline_lookup.get(job["job_id"])
             current_status = existing.get("status", "recommended") if existing else "recommended"
 
             now = datetime.now(timezone.utc)
-            
-            # When rescoring, always reset the LLM fields so stale verdicts
-            # don't show alongside a "Pending LLM Reasoning" rationale.
-            llm_verdict_reset = None
             
             await self._db.pipeline.update_one(
                 {"user_id": user_id, "job_id": job["job_id"]},
@@ -170,10 +173,10 @@ class ScoringEngine:
                     "$set": {
                         "score": round(final_score, 1),
                         "goal_scores": goal_scores,
+                        "skill_score": round(skill_score, 1),
                         "status": current_status,
                         "rationale": rationale,
-                        "llm_verdict": llm_verdict_reset,
-                        "goals_fingerprint": goals_fingerprint,
+                        "goals_fingerprint": state_fingerprint,
                         "updated_at": now
                     }
                 },

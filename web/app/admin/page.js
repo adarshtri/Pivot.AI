@@ -10,6 +10,7 @@ import {
   triggerInference,
   syncTelegramWebhooks,
   adminTestTelegramAlert,
+  triggerInsights,
 } from "../lib/api";
 
 
@@ -22,6 +23,7 @@ export default function AdminPage() {
   const [ingesting, setIngesting] = useState(false);
   const [scoring, setScoring] = useState(false);
   const [inferring, setInferring] = useState(false);
+  const [analyzingInsights, setAnalyzingInsights] = useState(false);
 
   // Form state
   const [braveKey, setBraveKey] = useState("");
@@ -151,6 +153,18 @@ export default function AdminPage() {
     }
   };
 
+  const handleInsights = async () => {
+    setAnalyzingInsights(true);
+    try {
+      const result = await triggerInsights("user1");
+      showToast(result.message || "Insights generation started in background");
+    } catch (err) {
+      showToast(err.message, "error");
+    } finally {
+      setAnalyzingInsights(false);
+    }
+  };
+
 
 
   if (loading) {
@@ -203,6 +217,14 @@ export default function AdminPage() {
           >
             {inferring ? <Spinner /> : null}
             {inferring ? "Reasoning…" : "🤖 Run LLM Reasoning"}
+          </button>
+          <button
+            className="btn-primary flex items-center gap-2"
+            onClick={handleInsights}
+            disabled={analyzingInsights}
+          >
+            {analyzingInsights ? <Spinner /> : null}
+            {analyzingInsights ? "Analyzing…" : "🧠 Run AI Insights"}
           </button>
         </div>
       </div>

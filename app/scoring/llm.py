@@ -45,6 +45,7 @@ JSON Response:"""
 class LLMProvider(Protocol):
     """Protocol defining the explicitly formalized JSON Inference abstraction."""
     async def generate_rationale(self, job: dict, goals: list[dict]) -> dict: ...
+    async def generate_insights(self, prompt: str) -> list[dict]: ...
     async def close(self): ...
 
 class OllamaClient(LLMProvider):
@@ -87,6 +88,35 @@ class OllamaClient(LLMProvider):
         except Exception as e:
             logger.error("Ollama generation failed: %s", e)
             return {"verdict": "Moderate Match", "reasoning": "Local LLM reasoning unavailable."}
+
+    async def generate_insights(self, prompt: str) -> list[dict]:
+        """Generic structured JSON generator for career insights."""
+        try:
+            response = await self.client.post(
+                f"{self.host}/api/generate",
+                json={
+                    "model": self.model,
+                    "prompt": prompt,
+                    "format": "json",
+                    "stream": False,
+                    "options": {"temperature": 0.4}
+                }
+            )
+            response.raise_for_status()
+            data = response.json()
+            response_text = data.get("response", "[]").strip()
+            
+            try:
+                parsed = json.loads(response_text)
+                if isinstance(parsed, dict) and "insights" in parsed:
+                    return parsed["insights"]
+                return parsed if isinstance(parsed, list) else []
+            except json.JSONDecodeError:
+                logger.error("Failed to parse Ollama Insights JSON: %s", response_text)
+                return []
+        except Exception as e:
+            logger.error("Ollama insights failed: %s", e)
+            return []
 
     async def close(self):
         await self.client.aclose()
@@ -186,6 +216,46 @@ class GroqClient(LLMProvider):
         except Exception as e:
             logger.error("Groq generation failed: %s", e)
             return {"verdict": "Moderate Match", "reasoning": "Cloud inference unavailable."}
+
+    async def generate_insights(self, prompt: str) -> list[dict]:
+        """Generic structured JSON generator for career insights."""
+        if not self.api_key or self.api_key == "********":
+            return []
+            
+        await self._enforce_rate_limit()
+        try:
+            response = await self.client.post(
+                "https://api.groq.com/openai/v1/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {self.api_key}",
+                    "Content-Type": "application/json"
+                },
+                json={
+                    "model": self.model,
+                    "messages": [{"role": "user", "content": prompt}],
+                    "response_format": {"type": "json_object"},
+                    "temperature": 0.4
+                }
+            )
+            response.raise_for_status()
+            data = response.json()
+            choices = data.get("choices", [])
+            if not choices:
+                return []
+                
+            response_text = choices[0].get("message", {}).get("content", "[]").strip()
+            
+            try:
+                parsed = json.loads(response_text)
+                if isinstance(parsed, dict) and "insights" in parsed:
+                    return parsed["insights"]
+                return parsed if isinstance(parsed, list) else []
+            except json.JSONDecodeError:
+                logger.error("Failed to parse Groq Insights JSON: %s", response_text)
+                return []
+        except Exception as e:
+            logger.error("Groq insights failed: %s", e)
+            return []
 
     async def close(self):
         await self.client.aclose()

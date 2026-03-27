@@ -7,7 +7,7 @@ from fastapi import FastAPI
 
 from app.database import close_db, connect_db
 from app.ingestion.scheduler import start_scheduler, stop_scheduler
-from app.routers import admin, discovery, goals, jobs, pipeline, profile, telegram
+from app.routers import admin, discovery, goals, insights, learning, jobs, pipeline, profile, telegram
 
 
 logging.basicConfig(
@@ -42,6 +42,8 @@ app.include_router(goals.router)
 app.include_router(jobs.router)
 app.include_router(discovery.router)
 app.include_router(pipeline.router)
+app.include_router(insights.router)
+app.include_router(learning.router)
 app.include_router(admin.router)
 app.include_router(telegram.router)
 

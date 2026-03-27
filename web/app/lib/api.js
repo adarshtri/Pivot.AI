@@ -14,6 +14,7 @@ async function request(path, options = {}) {
     const err = await res.json().catch(() => ({ detail: res.statusText }));
     throw new Error(err.detail || `API error: ${res.status}`);
   }
+  if (res.status === 204) return null;
   return res.json();
 }
 
@@ -72,6 +73,24 @@ export const syncTelegramWebhooks = () =>
 export const adminTestTelegramAlert = (targetUserId) =>
   request(`/admin/telegram/test-alert?target_user_id=${targetUserId}`, { method: "POST" });
 
+
+// Insights Engine
+export const getInsights = (userId) => request(`/insights?user_id=${userId}`);
+export const triggerInsights = (userId) => request(`/insights/run?user_id=${userId}`, { method: "POST" });
+export const deleteInsight = (userId, insightId) => request(`/insights/${insightId}?user_id=${userId}`, { method: "DELETE" });
+
+
+
+// Learning Hub
+export const getLearningHub = (userId) => request(`/learning?user_id=${userId}`);
+export const trackSkill = (userId, skillName, insightId = null) => 
+  request(`/learning?user_id=${userId}&skill_name=${encodeURIComponent(skillName)}${insightId ? `&origin_insight_id=${insightId}` : ""}`, { method: "POST" });
+export const updateLearningStatus = (userId, itemId, status) => 
+  request(`/learning/${itemId}?user_id=${userId}&status=${status}`, { method: "PATCH" });
+export const promoteSkill = (userId, itemId) => 
+  request(`/learning/${itemId}/promote?user_id=${userId}`, { method: "POST" });
+export const deleteLearningItem = (userId, itemId) => 
+  request(`/learning/${itemId}?user_id=${userId}`, { method: "DELETE" });
 
 
 // Stats (aggregated from existing endpoints)
