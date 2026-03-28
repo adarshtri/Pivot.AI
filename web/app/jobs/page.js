@@ -308,66 +308,67 @@ export default function JobsPage() {
                       })()}
                     </div>
                   )}
-                  
+                                    
+                  {(activeTab === "recommended" || activeTab === "saved") && (
+                    <div className="mb-4 flex items-center justify-between p-2.5 bg-[#7c5cfc]/5 border border-[#7c5cfc]/20 rounded-xl group/ai-tools hover:bg-[#7c5cfc]/10 transition-all">
+                      <div className="flex items-center gap-2">
+                        <span className="text-[10px] font-black uppercase tracking-widest text-[#7c5cfc]">AI Asset Manager</span>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <button 
+                           onClick={() => handleTailorResume(job.job_id)}
+                           disabled={tailoringJobs[job.job_id]}
+                           className="text-[11px] font-bold text-[#7c5cfc] hover:text-white transition-colors"
+                        >
+                           {tailoringJobs[job.job_id] ? "Tailoring..." : "✨ Tailor Resume"}
+                        </button>
+                        <div className="w-[1px] h-3 bg-[#7c5cfc]/20" />
+                        <Link 
+                          href={`/resume/${job.job_id}`}
+                          className="text-[11px] font-bold text-[#8a8ca0] hover:text-white transition-colors"
+                        >
+                          View →
+                        </Link>
+                      </div>
+                    </div>
+                  )}
+
                   <div className="line-clamp-4 leading-relaxed opacity-80 mt-2">
                     {cleanDescription(job.description)}
                   </div>
                 </div>
 
                 {/* Actions Footer */}
-                <div className="p-3 bg-[#161726] border-t border-[#2a2b40] rounded-b-xl flex justify-between items-center gap-2">
-                  <div className="flex gap-2">
+                <div className="p-3 bg-[#161726] border-t border-[#2a2b40] rounded-b-xl flex justify-between items-center gap-4">
+                  <div className="flex gap-1">
+                    {activeTab === "recommended" && activeTab !== "closed" && (
+                      <button 
+                        onClick={() => handleStatusUpdate(job.job_id, "saved")}
+                        title="Save for Later"
+                        className="p-2 text-[#8a8ca0] hover:text-[#56d364] hover:bg-[#56d364]/10 rounded-lg transition-all"
+                      >
+                         🔖
+                      </button>
+                    )}
                     {activeTab !== "ignored" && activeTab !== "closed" && (
                       <button 
                         onClick={() => handleStatusUpdate(job.job_id, "ignored")}
-                        className="px-3 py-1.5 text-xs font-semibold text-[#8a8ca0] hover:text-white hover:bg-[#2a2b40] rounded-md transition-colors"
+                        title="Ignore Job"
+                        className="p-2 text-[#8a8ca0] hover:text-[#f85149] hover:bg-[#f85149]/10 rounded-lg transition-all"
                       >
-                        Ignore
+                         ✖
                       </button>
-                    )}
-                    {activeTab !== "saved" && activeTab === "recommended" && activeTab !== "closed" && (
-                      <button 
-                        onClick={() => handleStatusUpdate(job.job_id, "saved")}
-                        className="px-3 py-1.5 text-xs font-semibold text-[#56d364] hover:bg-[#56d364]/10 rounded-md transition-colors"
-                      >
-                        Save
-                      </button>
-                    )}
-                    {activeTab !== "applied" && activeTab !== "closed" && (
-                      <button 
-                        onClick={() => handleStatusUpdate(job.job_id, "applied")}
-                        className="px-3 py-1.5 text-xs font-semibold text-[var(--accent)] hover:bg-[var(--accent)]/10 rounded-md transition-colors"
-                      >
-                        Mark Applied
-                      </button>
-                    )}
-                    {(activeTab === "recommended" || activeTab === "saved") && (
-                      <div className="flex items-center gap-2">
-                        <button 
-                           onClick={() => handleTailorResume(job.job_id)}
-                           disabled={tailoringJobs[job.job_id]}
-                           className="px-3 py-1.5 text-xs font-bold text-[#7c5cfc] hover:bg-[#7c5cfc]/10 rounded-md transition-colors border border-[#7c5cfc]/20"
-                        >
-                           {tailoringJobs[job.job_id] ? "Tailoring..." : "✨ Tailor Resume"}
-                        </button>
-                        <Link 
-                          href={`/resume/${job.job_id}`}
-                          className="text-[10px] font-bold text-[#5a5c72] hover:text-[#7c5cfc] tracking-tight uppercase"
-                        >
-                          View →
-                        </Link>
-                      </div>
                     )}
                   </div>
                   
-                  <div className="flex gap-2">
+                  <div className="flex items-center gap-2 flex-1 justify-end">
                     <a
                       href={job.url}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="px-3 py-1.5 text-xs font-medium text-[#8a8ca0] hover:text-[#d0d3e2] bg-[#2a2b40]/50 hover:bg-[#2a2b40] rounded-md transition-all"
+                      className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-tight text-[#8a8ca0] hover:text-[#d0d3e2] bg-[#2a2b40]/30 hover:bg-[#2a2b40] rounded-md transition-all"
                     >
-                      View Posting
+                      Source
                     </a>
                     
                     {activeTab !== "applied" && activeTab !== "closed" && (
@@ -384,7 +385,7 @@ export default function JobsPage() {
                     {activeTab === "closed" && (
                       <div className="flex items-center gap-2 px-3 py-1.5 bg-red-400/5 border border-red-400/20 rounded-md">
                         <span className="w-1.5 h-1.5 rounded-full bg-red-400" />
-                        <span className="text-[10px] font-black uppercase text-red-400 tracking-widest">Opportunity Closed</span>
+                        <span className="text-[10px] font-black uppercase text-red-400 tracking-widest">Closed</span>
                       </div>
                     )}
                   </div>
