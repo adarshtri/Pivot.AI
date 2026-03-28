@@ -11,6 +11,7 @@ const navItems = [
   { href: "/jobs", label: "Jobs", icon: "📋" },
   { href: "/strategist", label: "Strategist", icon: "🧠" },
   { href: "/learning-hub", label: "Learning Hub", icon: "🎓" },
+  { href: "/resume", label: "Resume", icon: "📄" },
 ];
 
 // For now, hardcode user1 as it's the only admin.

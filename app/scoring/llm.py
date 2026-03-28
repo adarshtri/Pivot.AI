@@ -46,6 +46,7 @@ class LLMProvider(Protocol):
     """Protocol defining the explicitly formalized JSON Inference abstraction."""
     async def generate_rationale(self, job: dict, goals: list[dict]) -> dict: ...
     async def generate_insights(self, prompt: str) -> list[dict]: ...
+    async def generate_text(self, prompt: str, temperature: float = 0.5) -> str: ...
     async def close(self): ...
 
 class OllamaClient(LLMProvider):
@@ -117,6 +118,25 @@ class OllamaClient(LLMProvider):
         except Exception as e:
             logger.error("Ollama insights failed: %s", e)
             return []
+
+    async def generate_text(self, prompt: str, temperature: float = 0.5) -> str:
+        """Generic text generator for LaTeX, etc."""
+        try:
+            response = await self.client.post(
+                f"{self.host}/api/generate",
+                json={
+                    "model": self.model,
+                    "prompt": prompt,
+                    "stream": False,
+                    "options": {"temperature": temperature}
+                }
+            )
+            response.raise_for_status()
+            data = response.json()
+            return data.get("response", "").strip()
+        except Exception as e:
+            logger.error("Ollama text generation failed: %s", e)
+            return ""
 
     async def close(self):
         await self.client.aclose()
@@ -256,6 +276,35 @@ class GroqClient(LLMProvider):
         except Exception as e:
             logger.error("Groq insights failed: %s", e)
             return []
+
+    async def generate_text(self, prompt: str, temperature: float = 0.5) -> str:
+        """Generic text generator for LaTeX, etc."""
+        if not self.api_key or self.api_key == "********":
+            return ""
+        await self._enforce_rate_limit()
+        try:
+            response = await self.client.post(
+                "https://api.groq.com/openai/v1/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {self.api_key}",
+                    "Content-Type": "application/json"
+                },
+                json={
+                    "model": self.model,
+                    "messages": [{"role": "user", "content": prompt}],
+                    "temperature": temperature
+                }
+            )
+            response.raise_for_status()
+            data = response.json()
+            choices = data.get("choices", [])
+            if not choices:
+                return ""
+                
+            return choices[0].get("message", {}).get("content", "").strip()
+        except Exception as e:
+            logger.error("Groq text generation failed: %s", e)
+            return ""
 
     async def close(self):
         await self.client.aclose()

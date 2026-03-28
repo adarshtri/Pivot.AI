@@ -18,6 +18,7 @@ class ProfilePayload(BaseModel):
     is_admin: bool = False
     telegram_token: str | None = None
     telegram_chat_id: str | None = None
+    resume_latex: str = ""
 
 
 
@@ -31,6 +32,7 @@ class ProfileResponse(BaseModel):
     is_admin: bool = False
     telegram_token: str | None = None
     telegram_chat_id: str | None = None
+    resume_latex: str = ""
     updated_at: datetime
 
 

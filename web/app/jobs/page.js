@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
-import { getPipeline, updatePipelineStatus } from "../lib/api";
+import Link from "next/link";
+import { getPipeline, updatePipelineStatus, tailorResume } from "../lib/api";
 import { Spinner, EmptyState, useToast } from "../components/ui";
 
 export default function JobsPage() {
@@ -8,7 +9,8 @@ export default function JobsPage() {
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState("recommended");
   const [page, setPage] = useState(1);
-  const [limit, setLimit] = useState(21); // Using 21 for a 3-column grid
+  const [limit, setLimit] = useState(21);
+  const [tailoringJobs, setTailoringJobs] = useState({}); // {jobId: true}
   const { showToast, ToastComponent } = useToast();
 
   const load = async () => {
@@ -49,6 +51,19 @@ export default function JobsPage() {
       showToast(`Moved to ${status}`);
     } catch (err) {
       showToast(err.message, "error");
+    }
+  };
+
+  const handleTailorResume = async (jobId) => {
+    setTailoringJobs(prev => ({ ...prev, [jobId]: true }));
+    try {
+      await tailorResume("user1", jobId);
+      showToast("Resume tailoring started! Check back in a few seconds.");
+      // In a real app we might poll, but for now we'll just show success
+    } catch (err) {
+      showToast(err.message, "error");
+    } finally {
+      setTailoringJobs(prev => ({ ...prev, [jobId]: false }));
     }
   };
 
@@ -325,6 +340,23 @@ export default function JobsPage() {
                       >
                         Mark Applied
                       </button>
+                    )}
+                    {(activeTab === "recommended" || activeTab === "saved") && (
+                      <div className="flex items-center gap-2">
+                        <button 
+                           onClick={() => handleTailorResume(job.job_id)}
+                           disabled={tailoringJobs[job.job_id]}
+                           className="px-3 py-1.5 text-xs font-bold text-[#7c5cfc] hover:bg-[#7c5cfc]/10 rounded-md transition-colors border border-[#7c5cfc]/20"
+                        >
+                           {tailoringJobs[job.job_id] ? "Tailoring..." : "✨ Tailor Resume"}
+                        </button>
+                        <Link 
+                          href={`/resume/${job.job_id}`}
+                          className="text-[10px] font-bold text-[#5a5c72] hover:text-[#7c5cfc] tracking-tight uppercase"
+                        >
+                          View →
+                        </Link>
+                      </div>
                     )}
                   </div>
                   

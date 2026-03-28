@@ -22,6 +22,10 @@ async function request(path, options = {}) {
 export const getProfile = (userId) => request(`/profile/${userId}`);
 export const upsertProfile = (data) =>
   request("/profile", { method: "POST", body: JSON.stringify(data) });
+export const tailorResume = (userId, jobId) => 
+  request(`/profile/${userId}/resume/tailor/${jobId}`, { method: "POST" });
+export const getTailoredResume = (userId, jobId) => 
+  request(`/profile/${userId}/resume/tailored/${jobId}`);
 
 // Goals
 export const getGoals = (userId) => request(`/goals/${userId}`);
