@@ -278,33 +278,51 @@ class GroqClient(LLMProvider):
             return []
 
     async def generate_text(self, prompt: str, temperature: float = 0.5) -> str:
-        """Generic text generator for LaTeX, etc."""
+        """Generic text generator with exponential backoff for 429s."""
         if not self.api_key or self.api_key == "********":
             return ""
-        await self._enforce_rate_limit()
-        try:
-            response = await self.client.post(
-                "https://api.groq.com/openai/v1/chat/completions",
-                headers={
-                    "Authorization": f"Bearer {self.api_key}",
-                    "Content-Type": "application/json"
-                },
-                json={
-                    "model": self.model,
-                    "messages": [{"role": "user", "content": prompt}],
-                    "temperature": temperature
-                }
-            )
-            response.raise_for_status()
-            data = response.json()
-            choices = data.get("choices", [])
-            if not choices:
-                return ""
+
+        max_retries = 3
+        retry_delay = self._min_delay
+        
+        for attempt in range(max_retries):
+            await self._enforce_rate_limit()
+            try:
+                response = await self.client.post(
+                    "https://api.groq.com/openai/v1/chat/completions",
+                    headers={
+                        "Authorization": f"Bearer {self.api_key}",
+                        "Content-Type": "application/json"
+                    },
+                    json={
+                        "model": self.model,
+                        "messages": [{"role": "user", "content": prompt}],
+                        "temperature": temperature
+                    }
+                )
                 
-            return choices[0].get("message", {}).get("content", "").strip()
-        except Exception as e:
-            logger.error("Groq text generation failed: %s", e)
-            return ""
+                if response.status_code == 429:
+                    logger.warning("Groq 429 received (Attempt %d/%d). Retrying in %.1fs...", attempt + 1, max_retries, retry_delay)
+                    await asyncio.sleep(retry_delay)
+                    retry_delay *= 2 # Exponential backoff
+                    continue
+                    
+                response.raise_for_status()
+                data = response.json()
+                choices = data.get("choices", [])
+                if not choices:
+                    return ""
+                    
+                return choices[0].get("message", {}).get("content", "").strip()
+                
+            except Exception as e:
+                if attempt == max_retries - 1:
+                    logger.error("Groq text generation failed after %d attempts: %s", max_retries, e)
+                    return ""
+                await asyncio.sleep(retry_delay)
+                retry_delay *= 2
+        
+        return ""
 
     async def close(self):
         await self.client.aclose()

@@ -1,11 +1,18 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useState, Suspense } from "react";
 import Link from "next/link";
-import { getPipeline, updatePipelineStatus, tailorResume } from "../lib/api";
+import { useSearchParams, useRouter } from "next/navigation";
+import { getPipeline, updatePipelineStatus, tailorResume, getCompanies } from "../lib/api";
 import { Spinner, EmptyState, useToast } from "../components/ui";
 
-export default function JobsPage() {
+function JobsContent() {
+  const searchParams = useSearchParams();
+  const router = useRouter();
+  const companyFilter = searchParams.get("company");
+  const sortBy = searchParams.get("sort") || "score";
+
   const [data, setData] = useState({ items: [], total: 0, page: 1, total_pages: 0, counts: {} });
+  const [companies, setCompanies] = useState([]);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState("recommended");
   const [page, setPage] = useState(1);
@@ -16,7 +23,10 @@ export default function JobsPage() {
   const load = async () => {
     setLoading(true);
     try {
-      const res = await getPipeline("user1", { page, limit, status: activeTab });
+      const params = { page, limit, status: activeTab, sort_by: sortBy };
+      if (companyFilter) params.company = companyFilter;
+      
+      const res = await getPipeline("user1", params);
       setData(res);
     } catch (err) {
       showToast(err.message, "error");
@@ -26,14 +36,51 @@ export default function JobsPage() {
     }
   };
 
+  const loadCompanies = async () => {
+    try {
+      const res = await getCompanies();
+      setCompanies(res);
+    } catch (err) {
+      console.error("Failed to load companies", err);
+    }
+  };
+
   useEffect(() => {
     load();
-  }, [activeTab, page, limit]);
+  }, [activeTab, page, limit, companyFilter, sortBy]);
 
-  // Reset to page 1 when tab changes
+  useEffect(() => {
+    loadCompanies();
+  }, []);
+
+  // Reset to page 1 when tab changes or filter/sort changes
   useEffect(() => {
     setPage(1);
-  }, [activeTab]);
+  }, [activeTab, companyFilter, sortBy]);
+
+  const clearFilter = () => {
+    const params = new URLSearchParams(searchParams);
+    params.delete("company");
+    router.push(`/jobs?${params.toString()}`);
+  };
+
+  const handleCompanyChange = (e) => {
+    const val = e.target.value;
+    const params = new URLSearchParams(searchParams);
+    if (val) {
+      params.set("company", val);
+    } else {
+      params.delete("company");
+    }
+    router.push(`/jobs?${params.toString()}`);
+  };
+
+  const handleSortChange = (e) => {
+    const val = e.target.value;
+    const params = new URLSearchParams(searchParams);
+    params.set("sort", val);
+    router.push(`/jobs?${params.toString()}`);
+  };
 
   const handleStatusUpdate = async (jobId, status) => {
     let reason = null;
@@ -169,31 +216,79 @@ export default function JobsPage() {
 
   return (
     <div className="pb-10">
-      <div className="flex flex-col md:flex-row md:items-end justify-between mb-8 pb-4 border-b border-[#2a2b40]">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight mb-1">AI Pipeline</h1>
-          <p className="text-[#8a8ca0]">
-            Review tailored job matches based on your goals and semantic profile.
-          </p>
+      <div className="mb-8 space-y-6">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+          <div>
+            <h1 className="text-3xl font-bold tracking-tight mb-1">AI Pipeline</h1>
+            <p className="text-[#8a8ca0] text-sm max-w-2xl">
+              Review tailored job matches based on your goals and semantic profile.
+            </p>
+          </div>
+          
+          {companyFilter && (
+            <div className="flex items-center gap-2 pl-3 pr-1.5 py-1.5 bg-[var(--accent)]/10 border border-[var(--accent)]/20 rounded-xl self-start md:self-center animate-in fade-in slide-in-from-right-2 duration-300">
+              <span className="text-[10px] font-black text-[var(--accent)] uppercase tracking-[0.2em] border-r border-[var(--accent)]/20 pr-3 mr-1">Active Filter</span>
+              <span className="text-xs font-bold text-white px-1">{companyFilter}</span>
+              <button 
+                onClick={clearFilter}
+                className="w-6 h-6 flex items-center justify-center rounded-lg bg-[var(--accent)]/20 text-[var(--accent)] hover:bg-[var(--accent)] hover:text-white transition-all text-xs"
+                title="Clear Filter"
+              >
+                ✕
+              </button>
+            </div>
+          )}
         </div>
         
-        <div className="flex gap-2 mt-4 md:mt-0 bg-[#161726] p-1 rounded-lg border border-[#2a2b40]">
-          {tabs.map((t) => (
-            <button
-              key={t.id}
-              onClick={() => setActiveTab(t.id)}
-              className={`px-4 py-1.5 text-sm font-medium rounded-md transition-colors ${
-                activeTab === t.id
-                  ? "bg-[var(--accent)] text-white"
-                  : "text-[#8a8ca0] hover:text-[#d0d3e2]"
-              }`}
-            >
-              {t.label} 
-              <span className="ml-2 opacity-60 text-xs">
-                {data.counts?.[t.id] || 0}
-              </span>
-            </button>
-          ))}
+        <div className="flex flex-col lg:flex-row items-start lg:items-center gap-4 bg-[#161726] p-2 rounded-2xl border border-[#2a2b40] shadow-2xl">
+          <div className="flex flex-col sm:flex-row items-center gap-2 w-full lg:w-auto">
+            <div className="flex items-center gap-3 px-3 py-1.5 bg-[#0d0e1a] rounded-xl border border-[#2a2b40] w-full sm:w-auto">
+              <span className="text-[10px] font-black uppercase tracking-[0.2em] text-[#5a5c72]">Filter By</span>
+              <select
+                value={companyFilter || ""}
+                onChange={handleCompanyChange}
+                className="bg-transparent text-xs font-bold text-[#d0d3e2] outline-none border-none cursor-pointer hover:text-white transition-colors flex-1 sm:flex-none min-w-[120px]"
+              >
+                <option value="">All Companies</option>
+                {companies.map(c => (
+                  <option key={c.name} value={c.name}>{c.name}</option>
+                ))}
+              </select>
+            </div>
+
+            <div className="flex items-center gap-3 px-3 py-1.5 bg-[#0d0e1a] rounded-xl border border-[#2a2b40] w-full sm:w-auto">
+              <span className="text-[10px] font-black uppercase tracking-[0.2em] text-[#5a5c72]">Sort By</span>
+              <select
+                value={sortBy}
+                onChange={handleSortChange}
+                className="bg-transparent text-xs font-bold text-[#d0d3e2] outline-none border-none cursor-pointer hover:text-white transition-colors flex-1 sm:flex-none"
+              >
+                <option value="score">Match Score</option>
+                <option value="created_at">Date Posted</option>
+              </select>
+            </div>
+          </div>
+          
+          <div className="hidden lg:block w-[1px] h-6 bg-[#2a2b40]" />
+
+          <div className="flex flex-wrap gap-1 w-full lg:w-auto">
+            {tabs.map((t) => (
+              <button
+                key={t.id}
+                onClick={() => setActiveTab(t.id)}
+                className={`flex-1 lg:flex-none px-4 py-2 text-xs font-bold uppercase tracking-wider rounded-xl transition-all ${
+                  activeTab === t.id
+                    ? "bg-[var(--accent)] text-white shadow-xl shadow-[var(--accent)]/20"
+                    : "text-[#8a8ca0] hover:text-[#d0d3e2] hover:bg-[#2a2b40]/30"
+                }`}
+              >
+                {t.label} 
+                <span className={`ml-2 text-[10px] ${activeTab === t.id ? "text-white/70" : "text-[#5a5c72]"}`}>
+                  {data.counts?.[t.id] || 0}
+                </span>
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 
@@ -400,6 +495,19 @@ export default function JobsPage() {
 
       {ToastComponent}
     </div>
+  );
+}
+
+export default function JobsPage() {
+  return (
+    <Suspense fallback={
+      <div className="flex flex-col items-center justify-center h-64 gap-4 text-[#8a8ca0]">
+        <Spinner /> 
+        <span className="text-sm font-medium animate-pulse">Loading Pipeline...</span>
+      </div>
+    }>
+      <JobsContent />
+    </Suspense>
   );
 }
 

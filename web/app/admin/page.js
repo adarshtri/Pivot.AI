@@ -6,6 +6,8 @@ import {
   updateAdminSettings,
   adminRunDiscovery,
   adminRunIngestion,
+  adminRunCompanyEnrichment,
+  adminRunCompanyScoring,
   triggerScoring,
   triggerInference,
   syncTelegramWebhooks,
@@ -24,6 +26,8 @@ export default function AdminPage() {
   const [scoring, setScoring] = useState(false);
   const [inferring, setInferring] = useState(false);
   const [analyzingInsights, setAnalyzingInsights] = useState(false);
+  const [companyScoring, setCompanyScoring] = useState(false);
+  const [enriching, setEnriching] = useState(false);
 
   // Form state
   const [braveKey, setBraveKey] = useState("");
@@ -35,6 +39,8 @@ export default function AdminPage() {
   const [telegramWebhookBaseUrl, setTelegramWebhookBaseUrl] = useState("");
   const [syncing, setSyncing] = useState(false);
   const [testingAlert, setTestingAlert] = useState(false);
+  const [llmMaxCalls, setLlmMaxCalls] = useState(5);
+  const [llmMinDelay, setLlmMinDelay] = useState(12.0);
 
 
 
@@ -49,6 +55,8 @@ export default function AdminPage() {
         setIngestionHours(s.ingestion_interval_hours || 6);
         setDiscoveryHours(s.discovery_interval_hours || 24);
         setTelegramWebhookBaseUrl(s.telegram_webhook_base_url || "");
+        setLlmMaxCalls(s.llm_max_calls_per_minute || 5);
+        setLlmMinDelay(s.llm_min_delay_seconds || 12.0);
       })
       .catch((err) => showToast(err.message, "error"))
 
@@ -66,6 +74,8 @@ export default function AdminPage() {
         ingestion_interval_hours: ingestionHours,
         discovery_interval_hours: discoveryHours,
         telegram_webhook_base_url: telegramWebhookBaseUrl.trim(),
+        llm_max_calls_per_minute: llmMaxCalls,
+        llm_min_delay_seconds: llmMinDelay,
       };
 
       const result = await updateAdminSettings(payload);
@@ -114,6 +124,34 @@ export default function AdminPage() {
       showToast(err.message, "error");
     } finally {
       setScoring(false);
+    }
+  };
+
+  const handleCompanyScoring = async () => {
+    setCompanyScoring(true);
+    try {
+      const result = await adminRunCompanyScoring();
+      showToast(`Company Scoring: ${result.scored_count} companies analyzed`);
+    } catch (err) {
+      showToast(err.message, "error");
+    } finally {
+      setCompanyScoring(false);
+    }
+  };
+
+  const handleEnrichment = async (force = false) => {
+    setEnriching(true);
+    try {
+      const result = await adminRunCompanyEnrichment(force);
+      if (result.status === "started") {
+        showToast("✨ Enrichment started in background");
+      } else {
+        showToast(`Enrichment: ${result.enriched_count} companies updated`);
+      }
+    } catch (err) {
+      showToast(err.message, "error");
+    } finally {
+      setEnriching(false);
     }
   };
 
@@ -220,6 +258,22 @@ export default function AdminPage() {
           </button>
           <button
             className="btn-primary flex items-center gap-2"
+            onClick={handleCompanyScoring}
+            disabled={companyScoring}
+          >
+            {companyScoring ? <Spinner /> : null}
+            {companyScoring ? "Scoring…" : "🧠 Run Company Scoring"}
+          </button>
+          <button
+            className="btn-primary flex items-center gap-2"
+            onClick={() => handleEnrichment(false)}
+            disabled={enriching}
+          >
+            {enriching ? <Spinner /> : null}
+            {enriching ? "Enriching…" : "✨ Enrich Metadata"}
+          </button>
+          <button
+            className="btn-primary flex items-center gap-2"
             onClick={handleInsights}
             disabled={analyzingInsights}
           >
@@ -318,6 +372,34 @@ export default function AdminPage() {
                 min="1"
                 value={discoveryHours}
                 onChange={(e) => setDiscoveryHours(parseInt(e.target.value) || 24)}
+              />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-xs font-semibold text-[#8a8ca0] uppercase tracking-wider mb-2">
+                LLM Max Calls / Min
+              </label>
+              <input
+                className="input-dark w-full"
+                type="number"
+                min="1"
+                value={llmMaxCalls}
+                onChange={(e) => setLlmMaxCalls(parseInt(e.target.value) || 15)}
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-[#8a8ca0] uppercase tracking-wider mb-2">
+                LLM Min Delay (sec)
+              </label>
+              <input
+                className="input-dark w-full"
+                type="number"
+                step="0.1"
+                min="0"
+                value={llmMinDelay}
+                onChange={(e) => setLlmMinDelay(parseFloat(e.target.value) || 4.0)}
               />
             </div>
           </div>

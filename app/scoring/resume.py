@@ -13,20 +13,8 @@ class ResumeEngine:
         self._llm_client: LLMProvider | None = None
 
     async def _get_llm_client(self) -> LLMProvider:
-        if self._llm_client is None:
-            settings = await self._db.admin_settings.find_one({"_id": "settings"}) or {}
-            provider = settings.get("model_provider", "ollama")
-            model_name = settings.get("model_name", "phi4-mini")
-            
-            if provider == "groq":
-                self._llm_client = GroqClient(
-                    api_key=settings.get("llm_api_key", ""),
-                    model=model_name
-                )
-            else:
-                self._llm_client = OllamaClient(model=model_name)
-                
-        return self._llm_client
+        from app.scoring.llm_factory import LLMFactory
+        return await LLMFactory.get_provider(self._db)
 
     async def tailor(self, user_id: str, job_id: str) -> dict:
         """Tailor a user's LaTeX resume for a specific job."""
@@ -34,6 +22,7 @@ class ResumeEngine:
         
         user = await self._db.users.find_one({"user_id": user_id})
         job = await self._db.jobs.find_one({"job_id": job_id})
+        goals_doc = await self._db.goals.find_one({"user_id": user_id})
         
         if not user or not job:
             return {"status": "error", "message": "User or Job not found"}
@@ -45,34 +34,52 @@ class ResumeEngine:
         job_desc = job.get("description", "")
         job_role = job.get("role", "")
         company = job.get("company", "")
+        
+        # Format goals for the prompt
+        user_goals = []
+        if goals_doc and "goals" in goals_doc:
+            user_goals = [f"- {g['text']} (Priority: {g['weight']})" for g in goals_doc["goals"]]
+        goals_str = "\n".join(user_goals) if user_goals else "None provided."
 
         llm = await self._get_llm_client()
         
-        prompt = f"""You are an expert Resume Tailoring AI. 
-        Your task is to modify a candidate's base LaTeX resume to perfectly align with a target job description.
+        prompt = f"""You are a Precise Resume Tailoring Agent. Your goal is to rewrite a LaTeX resume to align with a job description while maintaining 100% factual accuracy.
 
-        TARGET JOB: {job_role} at {company}
-        JOB DESCRIPTION:
-        {job_desc[:2000]}
+### CORE PRINCIPLES:
+1. **Source of Truth**: The BASE LATEX RESUME is your *only* source of experience, projects, dates, and titles. 
+2. **Zero Hallucination**: NEVER invent a metric (e.g., "improved efficiency by 20%"), a tool, or a responsibility that is not explicitly in the BASE LATEX.
+3. **Alignment vs. Invention**: Alignment means using the *existing* resume content but prioritizing and rephrasing it to use the keywords and focus areas of the TARGET JOB. Match the vocabulary, but DO NOT invent achievements.
+4. **No Placeholders**: Never use placeholders like [Your Name] or [Job Title]. Use the data from the BASE LATEX.
 
-        BASE LATEX RESUME:
-        {base_resume}
+### TARGET JOB:
+Role: {job_role}
+Company: {company}
+Focus Areas: {job_desc[:1500]}
 
-        INSTRUCTIONS:
-        1. STRICKLY maintain the EXACT SAME LaTeX structure, preamble, and custom commands. 
-        2. DO NOT introduce any new LaTeX packages, environments, or syntax that aren't already present in the BASE LATEX.
-        3. NO MARKDOWN: Never use Markdown syntax like **bold** or *italics*. Use only LaTeX commands like \\textbf{{text}} or \\textit{{text}} as per the BASE LATEX.
-        4. FOCUSED TAILORING: Rephrase and reorder "Experience" and "Skills" bullets to perfectly align with the TARGET JOB'S requirements.
-        5. Match the tone and level of detail found in the JOB DESCRIPTION while keeping the BASE LATEX'S formatting style (e.g., if it uses \\item, keep \\item; if it uses \\cvitem, keep \\cvitem).
-        6. Do NOT invent fake experience. Highlight existing relevant skills and projects.
-        7. Return ONLY the final LaTeX code. No preamble, no explanation, no markdown backticks.
+### CANDIDATE GOALS & PRIORITIES:
+{goals_str}
 
-        MODIFIED LATEX:"""
+### BASE LATEX RESUME:
+{base_resume}
 
-        tailored_latex = await llm.generate_text(prompt, temperature=0.3)
+### EXECUTION STEPS:
+1. **Identify Relevant Points**: Pick the bullet points and skills from the BASE LATEX that best match the TARGET JOB and the CANDIDATE GOALS.
+2. **Re-order for Impact**: Put the most relevant experiences and bullet points at the top of their respective sections.
+3. **Contextual Rephrasing**: Rewrite bullets to better use Job Description terminology (e.g., "developed" → "engineered") ONLY if it stays 100% true to the original meaning.
+4. **LaTeX Fidelity**: Maintain the exact LaTeX structure, commands, and formatting. Do not add new packages.
+
+### OUTPUT:
+Return ONLY the raw LaTeX code. No intro, no meta-commentary, no markdown backticks.
+
+MODIFIED LATEX:"""
+
+        tailored_latex = await llm.generate_text(prompt, temperature=0.0)
         
         if not tailored_latex:
             return {"status": "error", "message": "LLM failed to generate tailored resume"}
+
+        # Clean up any potential markdown backticks that the LLM might have ignored instructions on
+        tailored_latex = tailored_latex.replace("```latex", "").replace("```", "").strip()
 
         # Store the tailored version
         now = datetime.now(timezone.utc)

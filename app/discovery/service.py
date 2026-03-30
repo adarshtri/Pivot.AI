@@ -5,7 +5,7 @@ tokens from result URLs, validates them, and stores in MongoDB.
 """
 
 from __future__ import annotations
-
+from typing import Any, Protocol, runtime_checkable
 import logging
 import re
 from datetime import datetime, timezone
@@ -14,6 +14,7 @@ import httpx
 from motor.motor_asyncio import AsyncIOMotorDatabase
 
 from app.discovery.search import BraveSearchClient
+from app.scoring.llm import LLMProvider, OllamaClient, GroqClient
 
 logger = logging.getLogger(__name__)
 
@@ -125,9 +126,14 @@ async def _probe_ashby(slug: str) -> bool:
 class DiscoveryService:
     """Discovers companies from user goals and stores them in MongoDB."""
 
-    def __init__(self, db: AsyncIOMotorDatabase, search_client: BraveSearchClient) -> None:
+    def __init__(self, db: AsyncIOMotorDatabase, search_client: Any) -> None:
         self._db = db
         self._search = search_client
+        self._llm_client: LLMProvider | None = None
+
+    async def _get_llm_client(self) -> LLMProvider:
+        from app.scoring.llm_factory import LLMFactory
+        return await LLMFactory.get_provider(self._db)
 
     async def run(self) -> dict:
         """Execute a full discovery cycle across all users' goals.
@@ -142,7 +148,8 @@ class DiscoveryService:
 
         # 2. Build search queries
         queries = _build_search_queries(keywords)
-        logger.info("Discovery: %d queries from user goals", len(queries))
+        provider_name = self._search.__class__.__name__
+        logger.info("Discovery: %d queries from user goals using %s", len(queries), provider_name)
 
         # 3. Search and extract tokens
         all_results: list[dict] = []
@@ -199,6 +206,119 @@ class DiscoveryService:
         logger.info("Discovery complete: %s", summary)
         return summary
 
+    async def run_enrichment(self, force: bool = False) -> dict:
+        """Retroactively enrich existing companies with metadata using batching."""
+        logger.info("Starting retroactive company enrichment (force=%s)", force)
+        
+        # 1. Find companies in JOBS that are missing from COMPANIES entirely
+        all_job_companies = await self._db.jobs.distinct("company")
+        existing_names = await self._db.companies.distinct("name")
+        missing_names = [c for c in all_job_companies if c and c not in existing_names]
+        
+        # 2. Find existing companies that need metadata (description + domain) unless forced
+        if force:
+            query = {}
+        else:
+            query = {
+                "$or": [
+                    {"description": {"$in": ["", None]}},
+                    {"domain": {"$in": ["", None]}}
+                ]
+            }
+        
+        companies_to_enrich = await self._db.companies.find(query).to_list(length=1000)
+        
+        # 3. Add placeholders for missing companies (so they get enriched too)
+        for name in missing_names:
+            companies_to_enrich.append({"name": name, "is_new_placeholder": True})
+            
+        total_to_enrich = len(companies_to_enrich)
+        logger.info("Found %d companies to research/enrich (%d from ingestion)", total_to_enrich, len(missing_names))
+        
+        enriched_count = 0
+        batch_size = 5
+        
+        for i in range(0, total_to_enrich, batch_size):
+            batch = companies_to_enrich[i : i + batch_size]
+            names = [doc["name"] for doc in batch if doc.get("name")]
+            if not names: continue
+            
+            logger.info("Enriching batch [%d/%d]: %s", i + len(names), total_to_enrich, names)
+            results = await self._enrich_companies_batch(names)
+            
+            # Map results by name for easy lookup
+            results_map = {r.get("name"): r for r in results if r.get("name")}
+            
+            for doc in batch:
+                name = doc["name"]
+                enrichment = results_map.get(name)
+                if not enrichment:
+                    # Fallback to individual if batch missed it or failed
+                    logger.warning("Batch missed %s, falling back to individual", name)
+                    enrichment = await self._enrich_company(name)
+                
+                if enrichment:
+                    update_fields = {
+                        "name": name,
+                        "domain": enrichment.get("domain") or "",
+                        "size": enrichment.get("size") or "",
+                        "stage": enrichment.get("stage") or "",
+                        "description": enrichment.get("description") or "",
+                        "updated_at": datetime.now(timezone.utc)
+                    }
+                    
+                    if doc.get("is_new_placeholder"):
+                        # Insert new discovered company from jobs
+                        await self._db.companies.update_one(
+                            {"name": name},
+                            {
+                                "$set": {
+                                    **update_fields,
+                                    "slug": name.lower().replace(" ", "-"),
+                                    "source": "ingested",
+                                    "discovered_via": "ingestion",
+                                },
+                                "$setOnInsert": {"created_at": datetime.now(timezone.utc)}
+                            },
+                            upsert=True
+                        )
+                    else:
+                        # Update existing
+                        await self._db.companies.update_one({"_id": doc["_id"]}, {"$set": update_fields})
+                    
+                    enriched_count += 1
+                    
+        return {"status": "completed", "enriched_count": enriched_count}
+
+    async def _enrich_companies_batch(self, names: list[str]) -> list[dict]:
+        """Use LLM to generate metadata for multiple companies in one call."""
+        if not names: return []
+        llm = await self._get_llm_client()
+        names_str = ", ".join(names)
+        
+        prompt = f"""You are a company research assistant. Provide metadata for these companies: {names_str}.
+        
+        For each company, provide:
+        - name: The company name (EXACTLY as provided in the list)
+        - domain: Potential web domain (e.g. openai.com)
+        - size: Number of employees (e.g. 100-500, 10,000+)
+        - stage: Type (e.g. Series A, Public, Startup, Private)
+        - description: Concise 1-2 sentence description.
+        
+        Return a JSON object with a key "companies" containing a list of these objects.
+        Return ONLY the JSON object."""
+        
+        try:
+            res_text = await llm.generate_text(prompt, temperature=0.0)
+            import json, re
+            match = re.search(r"\{.*\}", res_text, re.DOTALL)
+            if match:
+                data = json.loads(match.group(0))
+                return data.get("companies", [])
+        except Exception:
+            logger.exception("Batch enrichment failed")
+        return []
+
     async def _collect_goals(self) -> list[str]:
         """Merge goal texts from all users into a combined set of keywords."""
         keywords: set[str] = set()
@@ -231,9 +351,55 @@ class DiscoveryService:
             logger.info("Skipped %d already-known companies", skipped)
         return filtered
 
+    async def _enrich_company(self, name: str) -> dict:
+        """Use LLM to generate description, domain, size, and type for a company."""
+        llm = await self._get_llm_client()
+        prompt = f"""You are a company research assistant. Provide metadata for the company: {name}.
+        
+        Capture the following in JSON format:
+        - domain: Potential web domain (e.g. openai.com)
+        - size: Number of employees (e.g. 100-500, 10,000+)
+        - stage: Type (e.g. Series A, Public, Startup, Private)
+        - description: Concise 1-2 sentence description including their main industry and focus.
+        
+        Return ONLY the JSON object."""
+        
+        try:
+            res_text = await llm.generate_text(prompt, temperature=0.0)
+            # Simple extractor for json
+            import json
+            import re
+            match = re.search(r"\{.*\}", res_text, re.DOTALL)
+            if match:
+                return json.loads(match.group(0))
+        except Exception:
+            logger.exception("Failed to enrich company %s", name)
+        
+        return {}
+
     async def _store_company(self, name: str, source: str) -> None:
-        """Upsert a discovered company into MongoDB."""
+        """Upsert a discovered company into MongoDB with enrichment."""
         now = datetime.now(timezone.utc)
+        
+        # Check if we already have this company name enriched elsewhere
+        # This prevents re-enriching if discovered from a different ATS source
+        existing = await self._db.companies.find_one({
+            "name": name, 
+            "description": {"$ne": ""}
+        })
+        
+        if existing:
+            logger.info("Company %s already enriched, reusing metadata.", name)
+            enrichment = {
+                "domain": existing.get("domain") or "",
+                "stage": existing.get("stage") or "",
+                "size": existing.get("size") or "",
+                "description": existing.get("description") or ""
+            }
+        else:
+            # Enrich before storing
+            enrichment = await self._enrich_company(name)
+        
         await self._db.companies.update_one(
             {"name": name, "source": source},
             {
@@ -241,10 +407,13 @@ class DiscoveryService:
                     "name": name,
                     "slug": name,
                     "source": source,
+                    "domain": enrichment.get("domain") or "",
+                    "stage": enrichment.get("stage") or "",
+                    "size": enrichment.get("size") or "",
+                    "description": enrichment.get("description") or "",
                     "discovered_via": "brave_search",
                     "updated_at": now,
                 },
-
                 "$setOnInsert": {"created_at": now},
             },
             upsert=True,

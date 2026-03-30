@@ -41,7 +41,7 @@ export const triggerIngestion = () =>
   request("/jobs/ingest", { method: "POST" });
 
 // Companies
-export const getCompanies = () => request("/companies");
+export const getCompanies = (userId = "user1") => request(`/companies?user_id=${userId}`);
 
 // Discovery
 export const triggerDiscovery = () =>
@@ -72,6 +72,10 @@ export const adminRunDiscovery = () =>
   request("/admin/discovery/run", { method: "POST" });
 export const adminRunIngestion = () =>
   request("/admin/ingestion/run", { method: "POST" });
+export const adminRunCompanyEnrichment = (force = false) =>
+  request(`/admin/discovery/companies/enrich?force=${force}`, { method: "POST" });
+export const adminRunCompanyScoring = () =>
+  request("/admin/scoring/companies/run", { method: "POST" });
 export const syncTelegramWebhooks = () =>
   request("/admin/telegram/sync-webhooks", { method: "POST" });
 export const adminTestTelegramAlert = (targetUserId) =>

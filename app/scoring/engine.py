@@ -28,20 +28,8 @@ class ScoringEngine:
         return self._embeddings_service
 
     async def _get_llm_client(self) -> LLMProvider:
-        if self._llm_client is None:
-            settings = await self._db.admin_settings.find_one({"_id": "settings"}) or {}
-            provider = settings.get("model_provider", "ollama")
-            model_name = settings.get("model_name", "phi4-mini")
-            
-            if provider == "groq":
-                self._llm_client = GroqClient(
-                    api_key=settings.get("llm_api_key", ""),
-                    model=model_name
-                )
-            else:
-                self._llm_client = OllamaClient(model=model_name)
-                
-        return self._llm_client
+        from app.scoring.llm_factory import LLMFactory
+        return await LLMFactory.get_provider(self._db)
 
     async def run(self, user_id: str) -> dict:
         """Score all unscored (or updated) jobs for the given user."""

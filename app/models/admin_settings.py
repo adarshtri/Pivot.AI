@@ -13,6 +13,8 @@ class AdminSettings(BaseModel):
     ingestion_interval_hours: int = 6
     discovery_interval_hours: int = 24
     telegram_webhook_base_url: str = ""
+    llm_max_calls_per_minute: int = 5
+    llm_min_delay_seconds: float = 12.0
 
 
 class AdminSettingsResponse(AdminSettings):
@@ -33,5 +35,7 @@ class AdminSettingsResponse(AdminSettings):
             ingestion_interval_hours=s.ingestion_interval_hours,
             discovery_interval_hours=s.discovery_interval_hours,
             telegram_webhook_base_url=s.telegram_webhook_base_url,
+            llm_max_calls_per_minute=s.llm_max_calls_per_minute,
+            llm_min_delay_seconds=s.llm_min_delay_seconds,
         )
 

@@ -28,12 +28,17 @@ class IngestionService:
         # 1. Start a new Sync Session
         sync_session_id = datetime.now(timezone.utc)
         
-        # 2. Legacy Migration: Give existing OPEN jobs the current session ID.
+        # 2. Legacy Migration: Give existing OPEN (or missing status) jobs the current session ID.
         # This saves them from the sweep in THIS first run.
-        # In the NEXT run, if they aren't seen again, they will be swept.
         await self._db.jobs.update_many(
-            {"status": "OPEN", "last_sync_id": {"$exists": False}},
-            {"$set": {"last_sync_id": sync_session_id}}
+            {
+                "$or": [
+                    {"status": "OPEN"},
+                    {"status": {"$exists": false}}
+                ],
+                "last_sync_id": {"$exists": False}
+            },
+            {"$set": {"status": "OPEN", "last_sync_id": sync_session_id}}
         )
 
         all_jobs: list[Job] = []

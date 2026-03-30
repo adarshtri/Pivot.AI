@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import math
+from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Query
@@ -24,34 +25,82 @@ async def get_pipeline(
     user_id: str,
     page: int = Query(1, ge=1),
     limit: int = Query(20, ge=1, le=100),
-    status: str = "recommended"
+    status: str = "recommended",
+    company: Optional[str] = Query(None),
+    sort_by: str = Query("score", pattern="^(score|created_at)$")
 ) -> PaginatedPipelineResponse:
     """Get scored jobs for a user, paginated and joined with job details."""
     db = get_db()
     
-    # 1. Total counts for all statuses for this user
-    counts_cursor = db.pipeline.aggregate([
+    # 1. Build the matching logic for both counts and data
+    match_query = {"user_id": user_id, "status": status}
+    
+    # Define the aggregation pipeline
+    pipeline = []
+    
+    # Filter by user and status first
+    pipeline.append({"$match": {"user_id": user_id}})
+    
+    # Join with jobs
+    pipeline.append({
+        "$lookup": {
+            "from": "jobs",
+            "localField": "job_id",
+            "foreignField": "job_id",
+            "as": "job_details"
+        }
+    })
+    
+    # Unwind job_details (should be 1-to-1)
+    pipeline.append({"$unwind": "$job_details"})
+    
+    # Apply company filter if present
+    if company:
+        pipeline.append({"$match": {"job_details.company": company}})
+        
+    # 2. Calculate counts for all statuses (respecting company filter)
+    # To do this efficiently, we'll run a separate aggregation for counts
+    count_pipeline = [
         {"$match": {"user_id": user_id}},
-        {"$group": {"_id": "$status", "count": {"$sum": 1}}}
-    ])
+        {"$lookup": {
+            "from": "jobs",
+            "localField": "job_id",
+            "foreignField": "job_id",
+            "as": "job_details"
+        }},
+        {"$unwind": "$job_details"}
+    ]
+    if company:
+        count_pipeline.append({"$match": {"job_details.company": company}})
+    
+    count_pipeline.append({"$group": {"_id": "$status", "count": {"$sum": 1}}})
+    
+    counts_cursor = db.pipeline.aggregate(count_pipeline)
     counts_data = await counts_cursor.to_list(length=10)
-    counts_dict = {
-        "recommended": 0,
-        "saved": 0,
-        "applied": 0,
-        "ignored": 0,
-        "closed": 0
-    }
+    counts_dict = {s: 0 for s in ["recommended", "saved", "applied", "ignored", "closed"]}
     for item in counts_data:
         if item["_id"] in counts_dict:
             counts_dict[item["_id"]] = item["count"]
             
     total = counts_dict.get(status, 0)
     
-    # 2. Fetch paginated pipeline items, sorted by score descending
-    pipeline_items = await db.pipeline.find(
-        {"user_id": user_id, "status": status}
-    ).sort("score", -1).skip((page - 1) * limit).limit(limit).to_list(length=limit)
+    # 3. Finalize data aggregation with sorting and pagination
+    # Filter by the requested status
+    pipeline.append({"$match": {"status": status}})
+    
+    # Sorting
+    if sort_by == "created_at":
+        pipeline.append({"$sort": {"job_details.created_at": -1, "score": -1}})
+    else:
+        pipeline.append({"$sort": {"score": -1, "job_details.created_at": -1}})
+        
+    # Pagination
+    pipeline.append({"$skip": (page - 1) * limit})
+    pipeline.append({"$limit": limit})
+    
+    # Execute
+    cursor = db.pipeline.aggregate(pipeline)
+    pipeline_items = await cursor.to_list(length=limit)
     
     if not pipeline_items:
         return PaginatedPipelineResponse(
@@ -63,23 +112,11 @@ async def get_pipeline(
             counts=counts_dict
         )
 
-        
-    # Map job_id -> pipeline document
-    p_map = {p["job_id"]: p for p in pipeline_items}
-    
-    # 3. Fetch corresponding jobs
-    job_ids = list(p_map.keys())
-    jobs = await db.jobs.find({"job_id": {"$in": job_ids}}).to_list(length=limit)
-    
-    # 4. Merge and normalize
+    # 4. Normalize results
     responses = []
-    # Maintain the order from pipeline_items (sorted by score)
     for p_item in pipeline_items:
-        # Find the matching job
-        job = next((j for j in jobs if j["job_id"] == p_item["job_id"]), None)
-        if not job:
-            continue
-            
+        job = p_item["job_details"]
+        
         responses.append(PipelineResponse(
             job_id=job["job_id"],
             company=job.get("company", ""),
@@ -88,13 +125,13 @@ async def get_pipeline(
             location=job.get("location", ""),
             url=job.get("url", ""),
             source=job.get("source", ""),
-            created_at=job.get("created_at"),
+            created_at=job.get("created_at") or job.get("ingested_at") or datetime.now(timezone.utc),
             pipeline_score=p_item.get("score", 0.0),
             pipeline_goal_scores=p_item.get("goal_scores", {}),
             pipeline_status=p_item.get("status", "recommended"),
             pipeline_rationale=p_item.get("rationale", ""),
-            pipeline_ignore_reason=p_item.get("ignore_reason", None),
-            pipeline_llm_verdict=p_item.get("llm_verdict", None),
+            pipeline_ignore_reason=p_item.get("ignore_reason"),
+            pipeline_llm_verdict=p_item.get("llm_verdict"),
             pipeline_closed_at=job.get("closed_at"),
             pipeline_updated_at=p_item.get("updated_at")
         ))

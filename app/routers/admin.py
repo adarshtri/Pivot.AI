@@ -216,4 +216,41 @@ async def admin_test_telegram_message(target_user_id: str, user_id: str = "user1
     return {"status": "success", "message": f"Test alert sent to {target_user_id}"}
 
 
+@router.post("/scoring/companies/run")
+async def admin_run_company_scoring(force: bool = False, user_id: str = "user1") -> dict:
+    """Run personalized company scoring for a user (admin only)."""
+    await _require_admin(user_id)
+    db = get_db()
+    from app.scoring.company_engine import CompanyScoringEngine
+    engine = CompanyScoringEngine(db)
+    
+    summary = await engine.score_all_for_user(user_id, force=force)
+    return summary
+
+
+from fastapi import BackgroundTasks
+
+@router.post("/discovery/companies/enrich")
+async def admin_run_company_enrichment(
+    background_tasks: BackgroundTasks,
+    force: bool = False, 
+    user_id: str = "user1"
+) -> dict:
+    """Retroactively enrich existing companies with AI metadata (admin only)."""
+    await _require_admin(user_id)
+    db = get_db()
+    from app.discovery.search import BraveSearchClient
+    from app.discovery.service import DiscoveryService
+    from app.config import settings
+    
+    # We don't need a real search client for enrichment, but the service needs one
+    client = BraveSearchClient(settings.brave_search_api_key or "dummy")
+    service = DiscoveryService(db, client)
+    
+    # Run enrichment in background to avoid blocking the API
+    background_tasks.add_task(service.run_enrichment, force=force)
+    
+    return {"status": "started", "message": "Company enrichment started in background"}
+
+
 
