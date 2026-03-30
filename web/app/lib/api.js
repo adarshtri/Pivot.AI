@@ -102,15 +102,14 @@ export const deleteLearningItem = (userId, itemId) =>
 
 
 // Stats (aggregated from existing endpoints)
-export async function getStats() {
-  const [jobs, companies] = await Promise.all([
-    getJobs({ limit: 1 }).catch(() => []),
-    getCompanies().catch(() => []),
+export async function getStats(userId = "user1") {
+  const [pipeline, companies] = await Promise.all([
+    getPipeline(userId, { limit: 1 }).catch(() => ({ total: 0 })),
+    getCompanies(userId).catch(() => []),
   ]);
-  // Fetch total job count with a large limit
-  const allJobs = await getJobs({ limit: 500 }).catch(() => []);
+  
   return {
-    jobCount: allJobs.length,
+    jobCount: pipeline.total || 0,
     companyCount: companies.length,
   };
 }

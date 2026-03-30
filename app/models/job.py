@@ -47,4 +47,4 @@ class JobResponse(BaseModel):
     location: str
     url: str
     source: str
-    created_at: datetime
+    created_at: Optional[datetime] = None

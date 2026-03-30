@@ -36,6 +36,12 @@ async def list_jobs(
 
     cursor = db.jobs.find(query, {"_id": 0}).sort("created_at", -1).skip(skip).limit(limit)
     docs = await cursor.to_list(length=limit)
+    
+    # Map ingested_at to created_at if missing
+    for doc in docs:
+        if not doc.get("created_at"):
+            doc["created_at"] = doc.get("ingested_at")
+            
     return [JobResponse(**doc) for doc in docs]
 
 
