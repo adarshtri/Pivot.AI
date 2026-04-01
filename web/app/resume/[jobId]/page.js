@@ -1,10 +1,12 @@
 "use client";
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
+import { useAuth } from "@clerk/nextjs";
 import { getTailoredResume } from "../../lib/api";
 import { Spinner, useToast } from "../../components/ui";
 
 export default function TailoredResumePage() {
+  const { getToken } = useAuth();
   const { jobId } = useParams();
   const router = useRouter();
   const [data, setData] = useState(null);
@@ -14,7 +16,9 @@ export default function TailoredResumePage() {
   useEffect(() => {
     async function load() {
       try {
-        const res = await getTailoredResume("user1", jobId);
+        const token = await getToken();
+        if (!token) return;
+        const res = await getTailoredResume(token, jobId);
         setData(res);
       } catch (err) {
         showToast("Tailored resume not found for this job. Ensure you clicked 'Tailor Resume' in the Pipeline.", "error");
@@ -23,7 +27,7 @@ export default function TailoredResumePage() {
       }
     }
     load();
-  }, [jobId]);
+  }, [jobId, getToken]);
 
   const handleDownload = () => {
     const blob = new Blob([data?.latex || ""], { type: "text/plain" });

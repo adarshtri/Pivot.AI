@@ -7,22 +7,15 @@ import httpx
 from datetime import datetime, timezone
 
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 
 from app.database import get_db
+from app.auth import require_admin
 from app.models.admin_settings import AdminSettings, AdminSettingsResponse
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1/admin", tags=["Admin"])
-
-
-async def _require_admin(user_id: str) -> None:
-    """Verify the user is an admin."""
-    db = get_db()
-    user = await db.users.find_one({"user_id": user_id}, {"is_admin": 1})
-    if not user or not user.get("is_admin"):
-        raise HTTPException(status_code=403, detail="Admin access required")
 
 
 async def get_admin_settings() -> AdminSettings:
@@ -35,17 +28,15 @@ async def get_admin_settings() -> AdminSettings:
 
 
 @router.get("/settings", response_model=AdminSettingsResponse)
-async def fetch_settings(user_id: str = "user1") -> AdminSettingsResponse:
+async def fetch_settings(user_id: str = Depends(require_admin)) -> AdminSettingsResponse:
     """Fetch current admin settings."""
-    await _require_admin(user_id)
     settings = await get_admin_settings()
     return AdminSettingsResponse.from_settings(settings)
 
 
 @router.put("/settings", response_model=AdminSettingsResponse)
-async def update_settings(payload: AdminSettings, user_id: str = "user1") -> AdminSettingsResponse:
+async def update_settings(payload: AdminSettings, user_id: str = Depends(require_admin)) -> AdminSettingsResponse:
     """Update admin settings (stored in MongoDB)."""
-    await _require_admin(user_id)
     db = get_db()
 
     update_fields = payload.model_dump(exclude_unset=True)
@@ -76,10 +67,8 @@ async def update_settings(payload: AdminSettings, user_id: str = "user1") -> Adm
 
 
 @router.post("/discovery/run")
-async def admin_trigger_discovery(user_id: str = "user1") -> dict:
+async def admin_trigger_discovery(user_id: str = Depends(require_admin)) -> dict:
     """Trigger company discovery (admin only)."""
-    await _require_admin(user_id)
-
     settings = await get_admin_settings()
     api_key = settings.brave_search_api_key
     if not api_key:
@@ -104,10 +93,8 @@ async def admin_trigger_discovery(user_id: str = "user1") -> dict:
 
 
 @router.post("/ingestion/run")
-async def admin_trigger_ingestion(user_id: str = "user1") -> dict:
+async def admin_trigger_ingestion(user_id: str = Depends(require_admin)) -> dict:
     """Trigger job ingestion (admin only)."""
-    await _require_admin(user_id)
-
     from app.config import settings as env_settings
     from app.ingestion.greenhouse import GreenhouseProvider
     from app.ingestion.lever import LeverProvider
@@ -148,9 +135,8 @@ async def admin_trigger_ingestion(user_id: str = "user1") -> dict:
 
 
 @router.post("/telegram/sync-webhooks")
-async def admin_sync_telegram_webhooks(user_id: str = "user1") -> dict:
+async def admin_sync_telegram_webhooks(user_id: str = Depends(require_admin)) -> dict:
     """Sync the base webhook URL to all configured Telegram bot tokens."""
-    await _require_admin(user_id)
     db = get_db()
     settings = await get_admin_settings()
     
@@ -193,12 +179,12 @@ async def admin_sync_telegram_webhooks(user_id: str = "user1") -> dict:
 
 
 @router.post("/telegram/test-alert")
-async def admin_test_telegram_message(target_user_id: str, user_id: str = "user1") -> dict:
+async def admin_test_telegram_message(target_user_id: str, user_id: str = Depends(require_admin)) -> dict:
     """Send a manual test notification to a specific user's Telegram bot."""
-    await _require_admin(user_id)
     db = get_db()
     
-    user = await db.users.find_one({"user_id": target_user_id})
+    actual_target = user_id if target_user_id == "current_user" else target_user_id
+    user = await db.users.find_one({"user_id": actual_target})
     if not user or not user.get("telegram_token") or not user.get("telegram_chat_id"):
         raise HTTPException(status_code=400, detail="User does not have Telegram configured or hasn't messaged /start")
 
@@ -217,9 +203,8 @@ async def admin_test_telegram_message(target_user_id: str, user_id: str = "user1
 
 
 @router.post("/scoring/companies/run")
-async def admin_run_company_scoring(force: bool = False, user_id: str = "user1") -> dict:
+async def admin_run_company_scoring(force: bool = False, user_id: str = Depends(require_admin)) -> dict:
     """Run personalized company scoring for a user (admin only)."""
-    await _require_admin(user_id)
     db = get_db()
     from app.scoring.company_engine import CompanyScoringEngine
     engine = CompanyScoringEngine(db)
@@ -234,10 +219,9 @@ from fastapi import BackgroundTasks
 async def admin_run_company_enrichment(
     background_tasks: BackgroundTasks,
     force: bool = False, 
-    user_id: str = "user1"
+    user_id: str = Depends(require_admin)
 ) -> dict:
     """Retroactively enrich existing companies with AI metadata (admin only)."""
-    await _require_admin(user_id)
     db = get_db()
     from app.discovery.search import BraveSearchClient
     from app.discovery.service import DiscoveryService

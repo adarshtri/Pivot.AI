@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
+import { useAuth } from "@clerk/nextjs";
 import { useToast, Spinner } from "../components/ui";
 import {
   getAdminSettings,
@@ -18,6 +19,7 @@ import {
 
 
 export default function AdminPage() {
+  const { getToken } = useAuth();
   const [settings, setSettings] = useState(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -47,8 +49,11 @@ export default function AdminPage() {
   const { showToast, ToastComponent } = useToast();
 
   useEffect(() => {
-    getAdminSettings()
-      .then((s) => {
+    const load = async () => {
+      try {
+        const token = await getToken();
+        if (!token) return;
+        const s = await getAdminSettings(token);
         setSettings(s);
         setModelProvider(s.model_provider || "ollama");
         setModelName(s.model_name || "phi4-mini");
@@ -57,15 +62,19 @@ export default function AdminPage() {
         setTelegramWebhookBaseUrl(s.telegram_webhook_base_url || "");
         setLlmMaxCalls(s.llm_max_calls_per_minute || 5);
         setLlmMinDelay(s.llm_min_delay_seconds || 12.0);
-      })
-      .catch((err) => showToast(err.message, "error"))
-
-      .finally(() => setLoading(false));
-  }, []);
+      } catch (err) {
+        showToast(err.message, "error");
+      } finally {
+        setLoading(false);
+      }
+    };
+    load();
+  }, [getToken]);
 
   const handleSave = async () => {
     setSaving(true);
     try {
+      const token = await getToken();
       const payload = {
         brave_search_api_key: braveKey || (settings?.brave_search_api_key_set ? "********" : ""),
         llm_api_key: llmApiKey || (settings?.llm_api_key_set ? "********" : ""),
@@ -78,7 +87,7 @@ export default function AdminPage() {
         llm_min_delay_seconds: llmMinDelay,
       };
 
-      const result = await updateAdminSettings(payload);
+      const result = await updateAdminSettings(token, payload);
       setSettings(result);
       setBraveKey("");
       setLlmApiKey("");
@@ -93,7 +102,8 @@ export default function AdminPage() {
   const handleDiscovery = async () => {
     setDiscovering(true);
     try {
-      const result = await adminRunDiscovery();
+      const token = await getToken();
+      const result = await adminRunDiscovery(token);
       showToast(`Discovery: ${result.companies_added} new companies found`);
     } catch (err) {
       showToast(err.message, "error");
@@ -105,7 +115,8 @@ export default function AdminPage() {
   const handleIngestion = async () => {
     setIngesting(true);
     try {
-      const result = await adminRunIngestion();
+      const token = await getToken();
+      const result = await adminRunIngestion(token);
       showToast(
         `Ingestion: ${result.new_inserted || 0} new, ${result.updated || 0} updated`
       );
@@ -118,7 +129,8 @@ export default function AdminPage() {
   const handleScoring = async () => {
     setScoring(true);
     try {
-      const result = await triggerScoring("user1");
+      const token = await getToken();
+      const result = await triggerScoring(token);
       showToast(result.message || "Scoring started in background");
     } catch (err) {
       showToast(err.message, "error");
@@ -130,7 +142,8 @@ export default function AdminPage() {
   const handleCompanyScoring = async () => {
     setCompanyScoring(true);
     try {
-      const result = await adminRunCompanyScoring();
+      const token = await getToken();
+      const result = await adminRunCompanyScoring(token);
       showToast(`Company Scoring: ${result.scored_count} companies analyzed`);
     } catch (err) {
       showToast(err.message, "error");
@@ -142,7 +155,8 @@ export default function AdminPage() {
   const handleEnrichment = async (force = false) => {
     setEnriching(true);
     try {
-      const result = await adminRunCompanyEnrichment(force);
+      const token = await getToken();
+      const result = await adminRunCompanyEnrichment(token, force);
       if (result.status === "started") {
         showToast("✨ Enrichment started in background");
       } else {
@@ -158,7 +172,8 @@ export default function AdminPage() {
   const handleInference = async () => {
     setInferring(true);
     try {
-      const result = await triggerInference("user1");
+      const token = await getToken();
+      const result = await triggerInference(token);
       showToast(result.message || "LLM inference started in background");
     } catch (err) {
       showToast(err.message, "error");
@@ -170,7 +185,8 @@ export default function AdminPage() {
   const handleSyncWebhooks = async () => {
     setSyncing(true);
     try {
-      const result = await syncTelegramWebhooks();
+      const token = await getToken();
+      const result = await syncTelegramWebhooks(token);
       showToast(`Successfully synced ${result.synced_count} bots.`);
     } catch (err) {
       showToast(err.message, "error");
@@ -182,8 +198,10 @@ export default function AdminPage() {
   const handleTestAlert = async () => {
     setTestingAlert(true);
     try {
-      await adminTestTelegramAlert("user1");
-      showToast("Test alert sent to user1!");
+      const token = await getToken();
+      // For testing, we just alert the current user
+      await adminTestTelegramAlert(token, "current_user"); 
+      showToast("Test alert sent!");
     } catch (err) {
       showToast(err.message, "error");
     } finally {
@@ -194,7 +212,8 @@ export default function AdminPage() {
   const handleInsights = async () => {
     setAnalyzingInsights(true);
     try {
-      const result = await triggerInsights("user1");
+      const token = await getToken();
+      const result = await triggerInsights(token);
       showToast(result.message || "Insights generation started in background");
     } catch (err) {
       showToast(err.message, "error");
@@ -434,7 +453,7 @@ export default function AdminPage() {
               onClick={handleTestAlert}
               disabled={testingAlert}
             >
-              {testingAlert ? <Spinner /> : "🔔 Send Test Alert to user1"}
+              {testingAlert ? <Spinner /> : "🔔 Send Test Alert"}
             </button>
             <p className="text-[0.65rem] text-[#5a5c72] italic">
               Use these to configure and verify all registered bot tokens.

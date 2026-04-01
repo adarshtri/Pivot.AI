@@ -1,9 +1,11 @@
 "use client";
 import { useEffect, useState } from "react";
+import { useAuth } from "@clerk/nextjs";
 import { getLearningHub, updateLearningStatus, promoteSkill, deleteLearningItem } from "../lib/api";
 import { useToast, Spinner } from "../components/ui";
 
 export default function LearningHubPage() {
+  const { getToken } = useAuth();
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [promoting, setPromoting] = useState(null);
@@ -11,7 +13,9 @@ export default function LearningHubPage() {
 
   const fetchData = async () => {
     try {
-      const res = await getLearningHub("user1");
+      const token = await getToken();
+      if (!token) return;
+      const res = await getLearningHub(token);
       setItems(res.items || []);
     } catch (err) {
       showToast(err.message, "error");
@@ -22,11 +26,12 @@ export default function LearningHubPage() {
 
   useEffect(() => {
     fetchData();
-  }, []);
+  }, [getToken]);
 
   const handleStatusChange = async (itemId, status) => {
     try {
-      await updateLearningStatus("user1", itemId, status);
+      const token = await getToken();
+      await updateLearningStatus(token, itemId, status);
       setItems(items.map(i => i._id === itemId ? { ...i, status } : i));
       showToast(`Status updated to ${status}`);
     } catch (err) {
@@ -37,7 +42,8 @@ export default function LearningHubPage() {
   const handlePromote = async (itemId, skillName) => {
     setPromoting(itemId);
     try {
-      await promoteSkill("user1", itemId);
+      const token = await getToken();
+      await promoteSkill(token, itemId);
       setItems(items.map(i => i._id === itemId ? { ...i, status: 'mastered' } : i));
       showToast(`${skillName} promoted to your profile! Re-scoring started.`);
     } catch (err) {
@@ -49,7 +55,8 @@ export default function LearningHubPage() {
 
   const handleDelete = async (itemId) => {
     try {
-      await deleteLearningItem("user1", itemId);
+      const token = await getToken();
+      await deleteLearningItem(token, itemId);
       setItems(items.filter(i => i._id !== itemId));
     } catch (err) {
       showToast(err.message, "error");

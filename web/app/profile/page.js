@@ -1,9 +1,11 @@
 "use client";
 import { useEffect, useState } from "react";
+import { useAuth } from "@clerk/nextjs";
 import { getProfile, upsertProfile } from "../lib/api";
 import { useToast, TagInput, Spinner } from "../components/ui";
 
 export default function ProfilePage() {
+  const { getToken } = useAuth();
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -16,25 +18,31 @@ export default function ProfilePage() {
 
 
   useEffect(() => {
-    getProfile("user1")
-      .then((p) => {
+    const load = async () => {
+      try {
+        const token = await getToken();
+        if (!token) return;
+        const p = await getProfile(token);
         setProfile(p);
         setSkills(p.skills || []);
         setExperienceLevel(p.experience_level || "");
         setCurrentRole(p.current_role || "");
         setTelegramToken(p.telegram_token || "");
         setTelegramChatId(p.telegram_chat_id || "");
-      })
-      .catch(() => {})
-
-      .finally(() => setLoading(false));
-  }, []);
+      } catch (err) {
+        console.error("Failed to load profile", err);
+      } finally {
+        setLoading(false);
+      }
+    };
+    load();
+  }, [getToken]);
 
   const handleSave = async () => {
     setSaving(true);
     try {
+      const token = await getToken();
       const data = {
-        user_id: "user1",
         skills,
         experience_level: experienceLevel,
         current_role: currentRole,
@@ -42,7 +50,7 @@ export default function ProfilePage() {
       };
 
 
-      const result = await upsertProfile(data);
+      const result = await upsertProfile(token, data);
       setProfile(result);
       showToast("Profile saved successfully");
     } catch (err) {

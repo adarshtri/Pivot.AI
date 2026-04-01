@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
+import { useAuth } from "@clerk/nextjs";
 import { getProfile, upsertProfile } from "../lib/api";
 import { Spinner, useToast } from "../components/ui";
 
@@ -22,6 +23,7 @@ const DEFAULT_LATEX = `\\documentclass[a4paper]{article}
 \\end{document}`;
 
 export default function ResumePage() {
+  const { getToken } = useAuth();
   const [profile, setProfile] = useState(null);
   const [latex, setLatex] = useState("");
   const [loading, setLoading] = useState(true);
@@ -31,7 +33,9 @@ export default function ResumePage() {
   useEffect(() => {
     async function load() {
       try {
-        const p = await getProfile("user1");
+        const token = await getToken();
+        if (!token) return;
+        const p = await getProfile(token);
         setProfile(p);
         setLatex(p.resume_latex || DEFAULT_LATEX);
       } catch (err) {
@@ -41,12 +45,13 @@ export default function ResumePage() {
       }
     }
     load();
-  }, []);
+  }, [getToken]);
 
   const handleSave = async () => {
     setSaving(true);
     try {
-      await upsertProfile({ ...profile, resume_latex: latex });
+      const token = await getToken();
+      await upsertProfile(token, { ...profile, resume_latex: latex });
       showToast("Base resume saved!");
     } catch (err) {
       showToast(err.message, "error");

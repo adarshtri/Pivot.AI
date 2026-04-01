@@ -1,10 +1,12 @@
 "use client";
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { useAuth } from "@clerk/nextjs";
 import { getProfile, getGoals, getStats, getInsights, getLearningHub, trackSkill } from "./lib/api";
 import { useToast, Spinner } from "./components/ui";
 
 export default function DashboardPage() {
+  const { getToken } = useAuth();
   const [profile, setProfile] = useState(null);
   const [goals, setGoals] = useState(null);
   const [insights, setInsights] = useState([]);
@@ -17,12 +19,15 @@ export default function DashboardPage() {
   useEffect(() => {
     async function load() {
       try {
+        const token = await getToken();
+        if (!token) return;
+
         const [p, g, s, ins, hub] = await Promise.all([
-          getProfile("user1").catch(() => null),
-          getGoals("user1").catch(() => null),
-          getStats().catch(() => ({ jobCount: 0, companyCount: 0 })),
-          getInsights("user1").catch(() => ({ insights: [] })),
-          getLearningHub("user1").catch(() => ({ items: [] })),
+          getProfile(token).catch(() => null),
+          getGoals(token).catch(() => null),
+          getStats(token).catch(() => ({ jobCount: 0, companyCount: 0 })),
+          getInsights(token).catch(() => ({ insights: [] })),
+          getLearningHub(token).catch(() => ({ items: [] })),
         ]);
         setProfile(p);
         setGoals(g);
@@ -35,7 +40,7 @@ export default function DashboardPage() {
       }
     }
     load();
-  }, []);
+  }, [getToken]);
 
   if (loading) {
     return (
@@ -48,10 +53,11 @@ export default function DashboardPage() {
 
   const handleTrackSkill = async (skillName, insightId) => {
     try {
-      await trackSkill("user1", skillName, insightId);
+      const token = await getToken();
+      await trackSkill(token, skillName, insightId);
       showToast(`Started tracking ${skillName}!`);
       // Refresh learning hub to show update if needed
-      const hub = await getLearningHub("user1").catch(() => ({ items: [] }));
+      const hub = await getLearningHub(token).catch(() => ({ items: [] }));
       setLearningHub(hub.items || []);
     } catch (err) {
       showToast(err.message, "error");

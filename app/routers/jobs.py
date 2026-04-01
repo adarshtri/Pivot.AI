@@ -5,10 +5,11 @@ from __future__ import annotations
 import logging
 from typing import Optional
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Depends, Query
 
 from app.config import settings
 from app.database import get_db
+from app.auth import get_current_user
 from app.ingestion.greenhouse import GreenhouseProvider
 from app.ingestion.lever import LeverProvider
 from app.ingestion.service import IngestionService
@@ -25,8 +26,9 @@ async def list_jobs(
     source: Optional[str] = Query(None, description="Filter by source (greenhouse, lever)"),
     limit: int = Query(50, ge=1, le=500, description="Max results"),
     skip: int = Query(0, ge=0, description="Offset for pagination"),
+    user_id: str = Depends(get_current_user),
 ) -> list[JobResponse]:
-    """List ingested jobs with optional filters."""
+    """List ingested jobs with optional filters (authenticated)."""
     db = get_db()
     query: dict = {}
     if company:
@@ -46,8 +48,8 @@ async def list_jobs(
 
 
 @router.post("/ingest", status_code=200)
-async def trigger_ingestion() -> dict:
-    """Manually trigger a full ingestion run across all configured providers."""
+async def trigger_ingestion(user_id: str = Depends(get_current_user)) -> dict:
+    """Manually trigger a full ingestion run (authenticated)."""
     db = get_db()
 
     # Construct provider instances from discovered companies in DB

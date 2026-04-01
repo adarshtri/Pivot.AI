@@ -4,10 +4,11 @@ import math
 from datetime import datetime, timezone
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 
 from app.database import get_db
+from app.auth import get_current_user
 from app.models.pipeline import PipelineItem, PipelineResponse, PaginatedPipelineResponse
 from app.scoring.engine import ScoringEngine
 
@@ -20,20 +21,17 @@ class StatusUpdate(BaseModel):
     reason: Optional[str] = None
 
 
-@router.get("/{user_id}", response_model=PaginatedPipelineResponse)
+@router.get("", response_model=PaginatedPipelineResponse)
 async def get_pipeline(
-    user_id: str,
+    user_id: str = Depends(get_current_user),
     page: int = Query(1, ge=1),
     limit: int = Query(20, ge=1, le=100),
     status: str = "recommended",
     company: Optional[str] = Query(None),
     sort_by: str = Query("score", pattern="^(score|created_at)$")
 ) -> PaginatedPipelineResponse:
-    """Get scored jobs for a user, paginated and joined with job details."""
+    """Get scored jobs for the current user, paginated and joined with job details."""
     db = get_db()
-    
-    # 1. Build the matching logic for both counts and data
-    match_query = {"user_id": user_id, "status": status}
     
     # Define the aggregation pipeline
     pipeline = []
@@ -145,12 +143,16 @@ async def get_pipeline(
         counts=counts_dict
     )
 
+@router.get("/{user_id}", response_model=PaginatedPipelineResponse, include_in_schema=False)
+async def get_pipeline_legacy(user_id: str, **kwargs) -> PaginatedPipelineResponse:
+    """Legacy support - should be migrated on frontend."""
+    return await get_pipeline(user_id=user_id, **kwargs)
 
-@router.put("/{user_id}/{job_id}/status", status_code=200)
-async def update_pipeline_status(user_id: str, job_id: str, payload: StatusUpdate) -> dict:
-    """Update a job's pipeline status (e.g., saved, ignored, applied)."""
+
+@router.put("/{job_id}/status", status_code=200)
+async def update_pipeline_status(job_id: str, payload: StatusUpdate, user_id: str = Depends(get_current_user)) -> dict:
+    """Update a job's pipeline status for the current user."""
     db = get_db()
-    from datetime import datetime, timezone
     now = datetime.now(timezone.utc)
     
     update_data = {"status": payload.status, "updated_at": now}
@@ -162,15 +164,20 @@ async def update_pipeline_status(user_id: str, job_id: str, payload: StatusUpdat
         {"$set": update_data}
     )
 
-    
     if result.matched_count == 0:
         raise HTTPException(status_code=404, detail="Pipeline item not found")
         
     return {"status": "success", "new_status": payload.status}
 
-@router.post("/{user_id}/score", status_code=202)
-async def trigger_scoring(user_id: str) -> dict:
-    """Trigger AI scoring engine in the background. Returns immediately."""
+@router.put("/{user_id}/{job_id}/status", status_code=200, include_in_schema=False)
+async def update_pipeline_status_legacy(user_id: str, job_id: str, payload: StatusUpdate) -> dict:
+    """Legacy support for status updates."""
+    return await update_pipeline_status(job_id=job_id, payload=payload, user_id=user_id)
+
+
+@router.post("/score", status_code=202)
+async def trigger_scoring(user_id: str = Depends(get_current_user)) -> dict:
+    """Trigger AI scoring engine in the background for the current user."""
     db = get_db()
     engine = ScoringEngine(db)
 
@@ -184,9 +191,15 @@ async def trigger_scoring(user_id: str) -> dict:
     asyncio.create_task(_run())
     return {"status": "accepted", "message": "Scoring started in background"}
 
-@router.post("/{user_id}/infer", status_code=202)
-async def trigger_llm_inference(user_id: str) -> dict:
-    """Trigger LLM inference engine in the background. Returns immediately."""
+@router.post("/{user_id}/score", status_code=202, include_in_schema=False)
+async def trigger_scoring_legacy(user_id: str) -> dict:
+    """Legacy support for scoring trigger."""
+    return await trigger_scoring(user_id=user_id)
+
+
+@router.post("/infer", status_code=202)
+async def trigger_llm_inference(user_id: str = Depends(get_current_user)) -> dict:
+    """Trigger LLM inference engine in the background for the current user."""
     db = get_db()
     engine = ScoringEngine(db)
 
@@ -199,3 +212,8 @@ async def trigger_llm_inference(user_id: str) -> dict:
 
     asyncio.create_task(_run())
     return {"status": "accepted", "message": "LLM inference started in background"}
+
+@router.post("/{user_id}/infer", status_code=202, include_in_schema=False)
+async def trigger_llm_inference_legacy(user_id: str) -> dict:
+    """Legacy support for inference trigger."""
+    return await trigger_llm_inference(user_id=user_id)

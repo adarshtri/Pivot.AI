@@ -1,9 +1,11 @@
 "use client";
 import { useEffect, useState } from "react";
+import { useAuth } from "@clerk/nextjs";
 import { getInsights, deleteInsight, trackSkill } from "../lib/api";
 import { useToast, Spinner } from "../components/ui";
 
 export default function StrategistPage() {
+  const { getToken } = useAuth();
   const [insights, setInsights] = useState([]);
   const [loading, setLoading] = useState(true);
   const [updatedAt, setUpdatedAt] = useState(null);
@@ -11,7 +13,8 @@ export default function StrategistPage() {
 
   const handleTrackSkill = async (skillName, insightId) => {
     try {
-      await trackSkill("user1", skillName, insightId);
+      const token = await getToken();
+      await trackSkill(token, skillName, insightId);
       showToast(`Started tracking ${skillName} in your Learning Hub!`);
     } catch (err) {
       showToast(err.message, "error");
@@ -20,7 +23,9 @@ export default function StrategistPage() {
 
   const fetchInsights = async () => {
     try {
-      const data = await getInsights("user1");
+      const token = await getToken();
+      if (!token) return;
+      const data = await getInsights(token);
       setInsights(data.insights || []);
       setUpdatedAt(data.updated_at);
     } catch (err) {
@@ -32,11 +37,12 @@ export default function StrategistPage() {
 
   useEffect(() => {
     fetchInsights();
-  }, []);
+  }, [getToken]);
 
   const handleDelete = async (id) => {
     try {
-      await deleteInsight("user1", id);
+      const token = await getToken();
+      await deleteInsight(token, id);
       setInsights(insights.filter(i => i._id !== id));
       showToast("Insight removed");
     } catch (err) {

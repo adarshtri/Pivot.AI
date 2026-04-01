@@ -1,16 +1,20 @@
 "use client";
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { useAuth } from "@clerk/nextjs";
 import { getCompanies } from "../lib/api";
 import { Spinner, EmptyState } from "../components/ui";
 
 export default function CompaniesPage() {
+  const { getToken } = useAuth();
   const [companies, setCompanies] = useState([]);
   const [loading, setLoading] = useState(true);
 
   const load = async () => {
     try {
-      const data = await getCompanies("user1");
+      const token = await getToken();
+      if (!token) return;
+      const data = await getCompanies(token);
       setCompanies(data);
     } catch {
       setCompanies([]);
@@ -19,7 +23,7 @@ export default function CompaniesPage() {
     }
   };
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => { load(); }, [getToken]);
 
   if (loading) {
     return (

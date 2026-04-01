@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 
 from app.config import settings
 from app.database import get_db
+from app.auth import get_current_user
 from app.discovery.search import BraveSearchClient
 from app.discovery.duckduckgo import DuckDuckGoClient
 from app.discovery.service import DiscoveryService
@@ -15,8 +16,8 @@ router = APIRouter(prefix="/api/v1", tags=["Discovery"])
 
 
 @router.post("/discovery/run", status_code=200)
-async def trigger_discovery() -> dict:
-    """Manually trigger a company discovery run."""
+async def trigger_discovery(user_id: str = Depends(get_current_user)) -> dict:
+    """Manually trigger a company discovery run (authenticated)."""
     if settings.brave_search_api_key:
         client = BraveSearchClient(settings.brave_search_api_key)
     else:
@@ -29,8 +30,8 @@ async def trigger_discovery() -> dict:
 
 
 @router.get("/companies", response_model=list[CompanyResponse])
-async def list_companies(user_id: str = "user1") -> list[CompanyResponse]:
-    """List all discovered/stored companies with job counts and personalized matches."""
+async def list_companies(user_id: str = Depends(get_current_user)) -> list[CompanyResponse]:
+    """List all discovered/stored companies with job counts and personalized matches for the current user."""
     db = get_db()
     
     # 1. Fetch companies
@@ -38,7 +39,6 @@ async def list_companies(user_id: str = "user1") -> list[CompanyResponse]:
     companies_docs = await cursor.to_list(length=500)
     
     # 2. Pre-fetch closed job IDs for THIS specific user from the pipeline
-    # This is much faster than doing a $lookup inside a large aggregation
     closed_job_ids = await db.pipeline.distinct(
         "job_id", 
         {"user_id": user_id, "status": "closed"}
@@ -60,8 +60,8 @@ async def list_companies(user_id: str = "user1") -> list[CompanyResponse]:
                                     {"$ne": ["$closed_at", None]}
                                 ]}
                             ]},
-                            0, # If closed globally OR in user pipeline -> 0 open
-                            1  # Else -> 1 open
+                            0, 
+                            1  
                         ]
                     }
                 },
@@ -76,8 +76,8 @@ async def list_companies(user_id: str = "user1") -> list[CompanyResponse]:
                                     {"$ne": ["$closed_at", None]}
                                 ]}
                             ]},
-                            1, # If closed globally OR in user pipeline -> 1 closed
-                            0  # Else -> 0 closed
+                            1, 
+                            0  
                         ]
                     }
                 }
@@ -86,7 +86,7 @@ async def list_companies(user_id: str = "user1") -> list[CompanyResponse]:
     ]
     
     counts_cursor = db.jobs.aggregate(pipeline)
-    counts_map = {} # {company_name: {"open": 0, "closed": 0}}
+    counts_map = {} 
     
     async for doc in counts_cursor:
         comp_name = doc["_id"]
@@ -129,7 +129,8 @@ async def list_companies(user_id: str = "user1") -> list[CompanyResponse]:
             user_match_rationale=match.get("rationale")
         ))
         
-    # Sort by match score descending, then open_jobs_count descending, then by name ascending
     results.sort(key=lambda x: (-(x.user_match_score or 0.0), -x.open_jobs_count, x.name))
+        
+    return results
         
     return results

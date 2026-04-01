@@ -2,10 +2,12 @@
 import { useEffect, useState, Suspense } from "react";
 import Link from "next/link";
 import { useSearchParams, useRouter } from "next/navigation";
+import { useAuth } from "@clerk/nextjs";
 import { getPipeline, updatePipelineStatus, tailorResume, getCompanies } from "../lib/api";
 import { Spinner, EmptyState, useToast } from "../components/ui";
 
 function JobsContent() {
+  const { getToken } = useAuth();
   const searchParams = useSearchParams();
   const router = useRouter();
   const companyFilter = searchParams.get("company");
@@ -23,10 +25,13 @@ function JobsContent() {
   const load = async () => {
     setLoading(true);
     try {
+      const token = await getToken();
+      if (!token) return;
+
       const params = { page, limit, status: activeTab, sort_by: sortBy };
       if (companyFilter) params.company = companyFilter;
       
-      const res = await getPipeline("user1", params);
+      const res = await getPipeline(token, params);
       setData(res);
     } catch (err) {
       showToast(err.message, "error");
@@ -38,7 +43,10 @@ function JobsContent() {
 
   const loadCompanies = async () => {
     try {
-      const res = await getCompanies();
+      const token = await getToken();
+      if (!token) return;
+
+      const res = await getCompanies(token);
       setCompanies(res);
     } catch (err) {
       console.error("Failed to load companies", err);
@@ -47,11 +55,11 @@ function JobsContent() {
 
   useEffect(() => {
     load();
-  }, [activeTab, page, limit, companyFilter, sortBy]);
+  }, [activeTab, page, limit, companyFilter, sortBy, getToken]);
 
   useEffect(() => {
     loadCompanies();
-  }, []);
+  }, [getToken]);
 
   // Reset to page 1 when tab changes or filter/sort changes
   useEffect(() => {
@@ -92,7 +100,8 @@ function JobsContent() {
 
 
     try {
-      await updatePipelineStatus("user1", jobId, status, reason);
+      const token = await getToken();
+      await updatePipelineStatus(token, jobId, status, reason);
       // Refresh data to move the item out of the current view
       load();
       showToast(`Moved to ${status}`);
@@ -104,7 +113,8 @@ function JobsContent() {
   const handleTailorResume = async (jobId) => {
     setTailoringJobs(prev => ({ ...prev, [jobId]: true }));
     try {
-      await tailorResume("user1", jobId);
+      const token = await getToken();
+      await tailorResume(token, jobId);
       showToast("Resume tailoring started! Check back in a few seconds.");
       // In a real app we might poll, but for now we'll just show success
     } catch (err) {

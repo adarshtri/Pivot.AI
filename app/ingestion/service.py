@@ -34,7 +34,7 @@ class IngestionService:
             {
                 "$or": [
                     {"status": "OPEN"},
-                    {"status": {"$exists": false}}
+                    {"status": {"$exists": False}}
                 ],
                 "last_sync_id": {"$exists": False}
             },

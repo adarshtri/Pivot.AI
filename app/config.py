@@ -11,6 +11,10 @@ class Settings(BaseSettings):
     # Brave Search    # Ingestion & Discovery
     brave_search_api_key: str = ""
 
+    # Authentication (Clerk)
+    clerk_issuer_url: str = ""
+    clerk_audience: str = ""
+
     # Scheduler
     ingestion_interval_hours: int = 6
     discovery_interval_hours: int = 24

@@ -1,10 +1,11 @@
 import logging
 from typing import List
-from fastapi import APIRouter, HTTPException, BackgroundTasks
+from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from datetime import datetime, timezone
 from bson import ObjectId
 
 from app.database import get_db
+from app.auth import get_current_user
 from app.models.learning import LearningItem, LearningHubResponse, LearningStatus
 from app.scoring.engine import ScoringEngine
 
@@ -13,7 +14,8 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/learning", tags=["Learning Hub"])
 
 @router.get("", response_model=LearningHubResponse)
-async def get_learning_hub(user_id: str = "user1") -> LearningHubResponse:
+async def get_learning_hub(user_id: str = Depends(get_current_user)) -> LearningHubResponse:
+    """Fetch the learning hub items for the current user."""
     db = get_db()
     cursor = db.learning_hub.find({"user_id": user_id}).sort("created_at", -1)
     items = []
@@ -25,7 +27,8 @@ async def get_learning_hub(user_id: str = "user1") -> LearningHubResponse:
     return LearningHubResponse(items=items, updated_at=updated_at)
 
 @router.post("", response_model=LearningItem)
-async def add_learning_item(skill_name: str, origin_insight_id: str = None, user_id: str = "user1"):
+async def add_learning_item(skill_name: str, origin_insight_id: str = None, user_id: str = Depends(get_current_user)):
+    """Track a new skill in the learning hub for the current user."""
     db = get_db()
     
     # Check if already tracking
@@ -48,7 +51,8 @@ async def add_learning_item(skill_name: str, origin_insight_id: str = None, user
     return LearningItem(**item)
 
 @router.patch("/{item_id}", response_model=LearningItem)
-async def update_learning_status(item_id: str, status: LearningStatus, user_id: str = "user1"):
+async def update_learning_status(item_id: str, status: LearningStatus, user_id: str = Depends(get_current_user)):
+    """Update the status of a learning item for the current user."""
     db = get_db()
     now = datetime.now(timezone.utc)
     
@@ -65,8 +69,8 @@ async def update_learning_status(item_id: str, status: LearningStatus, user_id: 
     return LearningItem(**result)
 
 @router.post("/{item_id}/promote")
-async def promote_to_profile(item_id: str, background_tasks: BackgroundTasks, user_id: str = "user1"):
-    """Move mastered skill to user profile and trigger re-scoring."""
+async def promote_to_profile(item_id: str, background_tasks: BackgroundTasks, user_id: str = Depends(get_current_user)):
+    """Move mastered skill to the current user's profile and trigger re-scoring."""
     db = get_db()
     
     item = await db.learning_hub.find_one({"_id": ObjectId(item_id), "user_id": user_id})
@@ -94,6 +98,7 @@ async def promote_to_profile(item_id: str, background_tasks: BackgroundTasks, us
     return {"status": "success", "message": f"Skill '{skill_name}' added to profile. Re-scoring started."}
 
 @router.delete("/{item_id}", status_code=204)
-async def delete_learning_item(item_id: str, user_id: str = "user1"):
+async def delete_learning_item(item_id: str, user_id: str = Depends(get_current_user)):
+    """Remove a skill from the current user's learning hub."""
     db = get_db()
     await db.learning_hub.delete_one({"_id": ObjectId(item_id), "user_id": user_id})

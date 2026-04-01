@@ -1,22 +1,31 @@
 "use client";
 import { useEffect, useState } from "react";
+import { useAuth } from "@clerk/nextjs";
 import { getGoals, upsertGoals } from "../lib/api";
 import { useToast, TagInput, Spinner } from "../components/ui";
 
 export default function GoalsPage() {
+  const { getToken } = useAuth();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [goals, setGoals] = useState([]);
   const { showToast, ToastComponent } = useToast();
 
   useEffect(() => {
-    getGoals("user1")
-      .then((g) => {
+    const load = async () => {
+      try {
+        const token = await getToken();
+        if (!token) return;
+        const g = await getGoals(token);
         setGoals(g.goals || []);
-      })
-      .catch(() => {})
-      .finally(() => setLoading(false));
-  }, []);
+      } catch (err) {
+        console.error("Failed to load goals", err);
+      } finally {
+        setLoading(false);
+      }
+    };
+    load();
+  }, [getToken]);
 
   const handleAddGoal = () => {
     setGoals([...goals, { id: crypto.randomUUID(), type: "Target Role", text: "", weight: 1.0 }]);
@@ -33,9 +42,9 @@ export default function GoalsPage() {
   const handleSave = async () => {
     setSaving(true);
     try {
+      const token = await getToken();
       const validGoals = goals.filter(g => g.text.trim());
-      await upsertGoals({
-        user_id: "user1",
+      await upsertGoals(token, {
         goals: validGoals,
       });
       showToast("Goals saved successfully");
