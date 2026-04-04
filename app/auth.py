@@ -23,10 +23,20 @@ async def get_current_user(token: HTTPAuthorizationCredentials = Security(securi
     treating the bearer token string itself as the user_id.
     """
     if not settings.clerk_issuer_url:
-        # Dev fallback: The token string is treated as the user_id directly
-        user_id = token.credentials
+        # Dev fallback: Try to decode stable 'sub' claim even without signature verification
+        try:
+            payload = jwt.decode(
+                token.credentials,
+                None,
+                options={"verify_signature": False, "verify_aud": False},
+            )
+            user_id = payload.get("sub")
+        except JWTError:
+            # Fallback for non-JWT strings (manual testing)
+            user_id = token.credentials
+            
         if not user_id:
-            user_id = "user1"
+            user_id = "dev_user"
         logger.debug("Auth (Dev Mode): user_id='%s'", user_id)
     else:
         try:
@@ -45,22 +55,29 @@ async def get_current_user(token: HTTPAuthorizationCredentials = Security(securi
             logger.error("JWT Verification failed: %s", e)
             raise HTTPException(status_code=401, detail="Invalid or expired token")
 
-    # Sync user to DB
+    # Sync user to DB atomically using upsert
     db = get_db()
-    user = await db.users.find_one({"user_id": user_id})
+    now = datetime.now(timezone.utc)
     
-    if not user:
-        # Auto-provision profile on first appearance
-        logger.info("Auto-provisioning user profile for: %s", user_id)
-        await db.users.insert_one({
-            "user_id": user_id,
-            "skills": [],
-            "experience_level": "",
-            "current_role": "",
-            "is_admin": False,
-            "created_at": datetime.now(timezone.utc),
-            "updated_at": datetime.now(timezone.utc),
-        })
+    # We use an atomic upsert with $setOnInsert for defaults to prevent 
+    # race conditions and redundant entries during concurrent sign-ins.
+    await db.users.update_one(
+        {"user_id": user_id},
+        {
+            "$setOnInsert": {
+                "user_id": user_id,
+                "skills": [],
+                "experience_level": "",
+                "current_role": "",
+                "is_admin": False,
+                "created_at": now,
+            },
+            "$set": {
+                "updated_at": now,
+            },
+        },
+        upsert=True,
+    )
 
     return user_id
 

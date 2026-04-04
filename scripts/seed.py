@@ -12,7 +12,8 @@ BASE_URL = "http://localhost:8000/api/v1"
 
 
 def main() -> None:
-    print("🌱 Seeding Pivot.AI …\n")
+    user_id = "dev_user"
+    print(f"🌱 Seeding Pivot.AI for {user_id} …\n")
 
     with httpx.Client(base_url=BASE_URL, timeout=10) as client:
         # 1. Health check
@@ -24,7 +25,7 @@ def main() -> None:
 
         # 2. Create profile
         profile = {
-            "user_id": "user1",
+            "user_id": user_id,
             "skills": ["backend", "distributed systems", "AI", "LLM"],
             "experience_level": "L5",
             "current_role": "Senior Software Engineer",
@@ -35,7 +36,7 @@ def main() -> None:
 
         # 3. Create goals
         goals = {
-            "user_id": "user1",
+            "user_id": user_id,
             "target_roles": ["AI Engineer", "ML Infrastructure Engineer", "Backend Tech Lead"],
             "domains": ["AI", "systems", "infrastructure"],
             "career_direction": "ownership and technical leadership in AI systems",
@@ -45,10 +46,10 @@ def main() -> None:
         print(f"✅ Goals created: {resp.json()}\n")
 
         # 4. Read back
-        resp = client.get("/profile/user1")
+        resp = client.get(f"/profile/{user_id}")
         print(f"📋 Profile: {resp.json()}\n")
 
-        resp = client.get("/goals/user1")
+        resp = client.get(f"/goals/{user_id}")
         print(f"🎯 Goals: {resp.json()}\n")
 
         # 5. Trigger ingestion

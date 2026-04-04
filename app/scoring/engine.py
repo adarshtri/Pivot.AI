@@ -144,13 +144,23 @@ class ScoringEngine:
             final_score = (goal_avg * 0.7) + (skill_score * 0.3)
             
             # 6. Sieve and Scalpel Logic
-            if round(final_score) >= 50:
-                rationale = "Pending LLM Reasoning"
+            existing = pipeline_lookup.get(job["job_id"])
+            
+            # Simple check: if we already have an LLM rationale for these goals,
+            # don't reset it to "Pending".
+            llm_fingerprint = hashlib.md5(
+                json.dumps(goals, sort_keys=True, default=str).encode()
+            ).hexdigest()[:12]
+            
+            if existing and existing.get("llm_goals_fingerprint") == llm_fingerprint:
+                rationale = existing.get("rationale", "Pending LLM Reasoning")
             else:
-                rationale = "Mathematically filtered by priority & skill match."
+                if round(final_score) >= 50:
+                    rationale = "Pending LLM Reasoning"
+                else:
+                    rationale = "Mathematically filtered by priority & skill match."
 
             # 7. Determine status and upsert to pipeline
-            existing = pipeline_lookup.get(job["job_id"])
             current_status = existing.get("status", "recommended") if existing else "recommended"
 
             now = datetime.now(timezone.utc)
@@ -211,16 +221,29 @@ class ScoringEngine:
         ).hexdigest()[:12]
         logger.info("LLM inference run for user %s | fingerprint: %s", user_id, llm_fingerprint)
 
-        # Query high-scoring jobs that haven't been ignored or applied yet.
-        candidate_cursor = self._db.pipeline.find({
+        # 1. First, define the boundary for LLM reasoning by fetching the absolute Top 50 
+        #    recommended/saved matches by score.
+        top_matches_cursor = self._db.pipeline.find({
             "user_id": user_id,
-            "score": {"$gte": 49.5},
             "status": {"$in": ["recommended", "saved"]}
         }).sort("score", -1).limit(50)
+        
+        top_matches = [p async for p in top_matches_cursor]
+        top_ids = [p["job_id"] for p in top_matches]
+        
+        # Calculate how many of these are already up-to-date to report as skipped
+        already_done = [p for p in top_matches if p.get("llm_goals_fingerprint") == llm_fingerprint]
+        
+        # 2. Only perform inference for jobs within that Top 50 set that aren't yet up-to-date.
+        candidate_cursor = self._db.pipeline.find({
+            "user_id": user_id,
+            "job_id": {"$in": top_ids},
+            "llm_goals_fingerprint": {"$ne": llm_fingerprint}
+        }).sort("score", -1)
 
         
         inferred_count = 0
-        skipped_count = 0
+        skipped_count = len(already_done)
         import time
         _start = time.monotonic()
         llm = await self._get_llm_client()
@@ -228,15 +251,15 @@ class ScoringEngine:
         strong_matches = []
 
         async for p in candidate_cursor:
-            # Skip if already inferred with the current goals state
+            # Re-verify skip just to be safe in high-concurrency
             if p.get("llm_goals_fingerprint") == llm_fingerprint:
-                skipped_count += 1
                 continue
 
             job = await self._db.jobs.find_one({"job_id": p["job_id"]})
             if not job:
                 continue
-                
+            
+            logger.info("  → Inferring: %s @ %s", job.get("role", "Unknown"), job.get("company", "Unknown"))
             result = await llm.generate_rationale(job, goals)
             verdict = result.get("verdict", "Moderate Match")
             

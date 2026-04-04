@@ -13,9 +13,14 @@ class EmbeddingsService:
         """Initialize the embedding model. This downloads the model on first run."""
         try:
             from fastembed import TextEmbedding
+            import os
+            # Use a stable local cache directory instead of system /tmp
+            cache_dir = os.path.join(os.getcwd(), ".cache", "fastembed")
+            os.makedirs(cache_dir, exist_ok=True)
+            
             # BAAI/bge-small-en-v1.5 is the default and yields 384-dimensional vectors
-            self._model = TextEmbedding(model_name=model_name)
-            logger.info("Initialized fastembed TextEmbedding model: %s", model_name)
+            self._model = TextEmbedding(model_name=model_name, cache_dir=cache_dir)
+            logger.info("Initialized fastembed TextEmbedding model: %s (at %s)", model_name, cache_dir)
         except ImportError:
             logger.error("fastembed package not installed. Run `pip install fastembed`")
             raise

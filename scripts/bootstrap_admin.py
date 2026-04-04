@@ -8,7 +8,8 @@ from motor.motor_asyncio import AsyncIOMotorClient
 
 
 async def main() -> None:
-    print("🌱 Bootstrapping Pivot.AI Local Developer...")
+    user_id = "dev_user"
+    print(f"🌱 Bootstrapping Pivot.AI Local Developer: {user_id}...")
     
     # 1. Connect to MongoDB
     mongodb_url = os.getenv("MONGODB_URL", "mongodb://localhost:27017")
@@ -17,9 +18,9 @@ async def main() -> None:
     
     now = datetime.now(timezone.utc)
     
-    # 2. Upsert user1 with admin access
+    # 2. Upsert user_id with admin access
     await db.users.update_one(
-        {"user_id": "user1"},
+        {"user_id": user_id},
         {"$set": {
             "is_admin": True,
             "updated_at": now
@@ -28,11 +29,11 @@ async def main() -> None:
     )
     
     # 3. Verify
-    user = await db.users.find_one({"user_id": "user1"})
-    print("✅ Created local developer profile:")
+    user = await db.users.find_one({"user_id": user_id})
+    print(f"✅ Created local developer profile:")
     print(f"   • User ID: {user['user_id']}")
     print(f"   • Admin Status: {user['is_admin']}")
-    print("\n✨ Bootstrap complete! You may now open http://localhost:3000 and access the Admin panel.")
+    print(f"\n✨ Bootstrap complete! You may now open http://localhost:3000 and access the Admin panel.")
     
     client.close()
 
