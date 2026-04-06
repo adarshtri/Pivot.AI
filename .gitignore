@@ -26,3 +26,5 @@ env/
 .DS_Store
 Thumbs.db
 .cache/
+rust-learning/
+target/

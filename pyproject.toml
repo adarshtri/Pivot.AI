@@ -12,6 +12,7 @@ dependencies = [
     "httpx>=0.27.0",
     "apscheduler>=3.10.0",
     "python-dotenv>=1.0.0",
+    "mcp[cli]>=1.0.0",
 ]
 
 [project.optional-dependencies]
@@ -21,10 +22,12 @@ dev = [
     "httpx",
 ]
 
+[project.scripts]
+pivot-mcp = "pivot_mcp.main:main"
+
 [tool.setuptools.packages.find]
-include = ["app*", "scripts*"]
+include = ["app*", "scripts*", "pivot_mcp*"]
 
 [build-system]
 requires = ["setuptools>=68.0"]
 build-backend = "setuptools.build_meta"
-

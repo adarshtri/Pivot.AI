@@ -267,15 +267,27 @@ class DiscoveryService:
                         "updated_at": datetime.now(timezone.utc)
                     }
                     
-                    if doc.get("is_new_placeholder"):
-                        # Insert new discovered company from jobs
+                    if doc.get("is_new_placeholder") or doc.get("source") == "ingested":
+                        # Try to identify real source from job URLs
+                        source = doc.get("source", "ingested")
+                        job_sample = await self._db.jobs.find_one({"company": name})
+                        if job_sample:
+                            u = job_sample.get("url", "")
+                            if GREENHOUSE_PATTERN.search(u):
+                                source = "greenhouse"
+                            elif LEVER_PATTERN.search(u):
+                                source = "lever"
+                            elif ASHBY_PATTERN.search(u):
+                                source = "ashby"
+
+                        # Insert/Update discovered company info
                         await self._db.companies.update_one(
                             {"name": name},
                             {
                                 "$set": {
                                     **update_fields,
                                     "slug": name.lower().replace(" ", "-"),
-                                    "source": "ingested",
+                                    "source": source,
                                     "discovered_via": "ingestion",
                                 },
                                 "$setOnInsert": {"created_at": datetime.now(timezone.utc)}
